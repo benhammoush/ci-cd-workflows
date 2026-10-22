@@ -1,0 +1,28 @@
+name: Verify worker
+on:
+  workflow_call:
+    inputs:
+      automation_sha:
+        type: string
+        required: true
+      source_sha:
+        type: string
+        required: true
+      environment:
+        type: string
+        default: dev
+      node_version:
+        type: string
+        default: "24"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+    with:
+      profile: worker
+      automation_sha: ${{ inputs.automation_sha }}
+      source_sha: ${{ inputs.source_sha }}
+      environment: ${{ inputs.environment }}
+      node_version: ${{ inputs.node_version }}

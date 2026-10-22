@@ -1,0 +1,34 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact merged source SHA to revalidate and redeploy in dev
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    uses: benhammoush/ci-cd-workflows/.github/workflows/verify-web.yml@__AUTOMATION_SHA__
+    with:
+      automation_sha: "__AUTOMATION_SHA__"
+      source_sha: ${{ inputs.sha || github.sha }}
+      environment: dev
+      node_version: "__NODE_VERSION__"
+  deploy_dev:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    uses: benhammoush/ci-cd-workflows/.github/workflows/deploy-web.yml@__AUTOMATION_SHA__
+    with:
+      automation_sha: "__AUTOMATION_SHA__"
+      source_sha: ${{ inputs.sha || github.sha }}
+      environment: dev
+      node_version: "__NODE_VERSION__"
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SMOKE_BYPASS: ${{ secrets.SMOKE_BYPASS }}

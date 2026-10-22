@@ -1,0 +1,39 @@
+name: Deploy web
+on:
+  workflow_call:
+    inputs:
+      automation_sha:
+        type: string
+        required: true
+      source_sha:
+        type: string
+        required: true
+      environment:
+        type: string
+        required: true
+      node_version:
+        type: string
+        default: "24"
+      lock_scope:
+        type: string
+        default: ""
+    secrets:
+      VERCEL_TOKEN:
+        required: true
+      SMOKE_BYPASS:
+        required: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      automation_sha: ${{ inputs.automation_sha }}
+      source_sha: ${{ inputs.source_sha }}
+      environment: ${{ inputs.environment }}
+      node_version: ${{ inputs.node_version }}
+      lock_scope: ${{ inputs.lock_scope }}
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SMOKE_BYPASS: ${{ secrets.SMOKE_BYPASS }}

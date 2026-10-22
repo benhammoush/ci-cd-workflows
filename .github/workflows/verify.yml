@@ -1,0 +1,124 @@
+name: Verify consumer
+on:
+  workflow_call:
+    inputs:
+      profile:
+        type: string
+        required: true
+      automation_sha:
+        type: string
+        required: true
+      source_sha:
+        type: string
+        required: true
+      environment:
+        type: string
+        required: true
+      node_version:
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CI_SOURCE_SHA: ${{ inputs.source_sha }}
+      CI_ENVIRONMENT: ${{ inputs.environment }}
+      CI_AUTOMATION_SHA: ${{ inputs.automation_sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: benhammoush/ci-cd-workflows
+          ref: ${{ inputs.automation_sha }}
+          path: _automation
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+      - run: npm ci --ignore-scripts
+        working-directory: _automation
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          path: control
+          persist-credentials: false
+      - run: node _automation/scripts/consumer.mjs validate
+      - run: node _automation/scripts/source.mjs
+      - name: Require retained successful dev delivery before production checks
+        if: inputs.environment == 'production'
+        run: node _automation/scripts/dev-evidence.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: candidate
+          persist-credentials: false
+      - id: configuration
+        name: Read public integration configuration
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; const c=JSON.parse(fs.readFileSync('control/.github/ci-cd.json')); if(c.profile!==process.env.PROFILE) throw Error('Wrong profile'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'integration='+c.integration+'\nworker_repository='+(c.workerRepository||'')+'\nworker_sha='+(c.workerSha||'')+'\n');"
+        env:
+          PROFILE: ${{ inputs.profile }}
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        if: steps.configuration.outputs.worker_repository != ''
+        with:
+          repository: ${{ steps.configuration.outputs.worker_repository }}
+          ref: ${{ steps.configuration.outputs.worker_sha }}
+          path: worker
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+      - run: npm ci
+        working-directory: candidate
+        env:
+          npm_config_engine_strict: "true"
+      - run: npm ci
+        if: steps.configuration.outputs.worker_repository != ''
+        working-directory: worker
+      - run: npx --no-install playwright install --with-deps chromium firefox webkit
+        if: inputs.profile == 'web'
+        working-directory: candidate
+      - run: npm run ci:integration
+        if: steps.configuration.outputs.integration == 'true'
+        working-directory: candidate
+        env:
+          IRIS_WORKER_ROOT: ${{ github.workspace }}/worker
+      - run: node _automation/scripts/consumer.mjs build-env
+      - run: npm run ci:quality
+        working-directory: candidate
+      - run: npm run ci:browser
+        if: inputs.profile == 'web'
+        working-directory: candidate
+      - run: npm run ci:prepare --if-present
+        working-directory: candidate
+      - run: npm run ci:verify-artifact --if-present
+        working-directory: candidate
+      - run: node _automation/scripts/artifact.mjs prepare
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: build-${{ inputs.source_sha }}-${{ inputs.environment }}
+          path: |
+            candidate/dist/
+            candidate/ci-build.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+      - name: Retain failed browser diagnostics without relaxing checks
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: browser-diagnostics-${{ inputs.environment }}
+          path: |
+            candidate/test-results/
+            candidate/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

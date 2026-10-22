@@ -1,0 +1,103 @@
+name: Deploy checked artifact
+on:
+  workflow_call:
+    inputs:
+      automation_sha:
+        type: string
+        required: true
+      source_sha:
+        type: string
+        required: true
+      environment:
+        type: string
+        required: true
+      node_version:
+        type: string
+        required: true
+      lock_scope:
+        type: string
+        default: ""
+    secrets:
+      VERCEL_TOKEN:
+        required: false
+      SMOKE_BYPASS:
+        required: false
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      IRIS_REFRESH_TOKEN:
+        required: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  deploy:
+    name: Deploy
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ inputs.lock_scope || inputs.environment }}
+      cancel-in-progress: false
+    env:
+      CI_SOURCE_SHA: ${{ inputs.source_sha }}
+      CI_ENVIRONMENT: ${{ inputs.environment }}
+      CI_AUTOMATION_SHA: ${{ inputs.automation_sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: benhammoush/ci-cd-workflows
+          ref: ${{ inputs.automation_sha }}
+          path: _automation
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+      - run: npm ci --ignore-scripts
+        working-directory: _automation
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          path: control
+          persist-credentials: false
+      - run: node _automation/scripts/consumer.mjs validate
+      - run: node _automation/scripts/source.mjs
+      - name: Recheck dev evidence after approval
+        if: inputs.environment == 'production'
+        run: node _automation/scripts/dev-evidence.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: build-${{ inputs.source_sha }}-${{ inputs.environment }}
+          path: candidate
+      - run: node _automation/scripts/artifact.mjs verify
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: ${{ inputs.node_version }}
+      - run: npm ci --ignore-scripts
+        working-directory: control
+      - name: Deploy using trusted main adapter and target-scoped credentials
+        run: node _automation/scripts/consumer.mjs deploy
+        env:
+          CI_CONFIGURATION: ${{ toJSON(vars) }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          SMOKE_BYPASS: ${{ secrets.SMOKE_BYPASS }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          IRIS_REFRESH_TOKEN: ${{ secrets.IRIS_REFRESH_TOKEN }}
+      - name: Retain evidence even after an interrupted mutation or smoke failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: delivery-record-${{ inputs.environment }}
+          path: candidate/delivery-record.json
+          if-no-files-found: ignore
+          retention-days: 90
