@@ -1,4 +1,9 @@
-# Version 1 release contract
+# Release contract
+
+Automation 2.0 removes dev deployment opt-ins, an intentional breaking behavior
+change from 1.x. Consumer configuration, artifacts and records retain schema
+version 1. Adopt only a verified published immutable SHA; local changes do not
+update consumers or authorize deployment.
 
 ## Ownership and adoption
 
@@ -21,7 +26,7 @@ bundles; it does not deploy. Scripts existing in a package are not proof that
 critical flows, accessibility, authorization or failure states are tested.
 
 The fixed trusted-main `scripts/ci-deploy.mjs` consumes `dist` and `ci-build.json`
-from verification. It validates environment enablement/configuration, uses only
+from verification. It validates target configuration and production enablement, uses only
 the selected target credential, records prior immutable provider identity before
 mutation, deploys without rebuilding tested bytes, and checks provider identity
 plus bounded read-only health/smoke. It writes `delivery-record.json` even on
@@ -62,6 +67,11 @@ merge SHA can automatically deliver dev. A main-only manual CI dispatch can
 revalidate/redeploy an exact merged SHA for dev recovery. Failed, cancelled or PR
 checks cannot deploy. Deploy jobs have their own non-cancelling environment lock;
 do not put the whole caller workflow under cancelling concurrency.
+
+Dev delivery has no boolean opt-in: absent or false `DEPLOY_ENABLED` and legacy
+`DELIVERY_ENABLED` values cannot skip it. Missing configuration or credentials
+fails delivery rather than reporting a successful disabled no-op. Production
+enablement, manual dispatch, dev evidence and native approval remain unchanged.
 
 `Deploy production` is a separate manual, main-only entry point. Require a full
 merged SHA, retained successful same-repository dev delivery for that SHA,
