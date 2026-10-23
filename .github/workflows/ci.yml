@@ -21,3 +21,24 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm audit --audit-level=high
+  browser_host:
+    name: Ubuntu browser installation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+      - run: npm ci --ignore-scripts
+        working-directory: tests/fixtures/browser-host
+      - name: Prepare bounded browser dependency downloads
+        timeout-minutes: 2
+        run: sudo "$(command -v node)" scripts/browser-host.mjs
+      - run: npx --no-install playwright install --with-deps chromium firefox webkit
+        timeout-minutes: 10
+        working-directory: tests/fixtures/browser-host
+      - run: node check.mjs
+        working-directory: tests/fixtures/browser-host

@@ -84,8 +84,15 @@ jobs:
       - run: npm ci
         if: steps.configuration.outputs.worker_repository != ''
         working-directory: worker
+      # Runner Azure APT downloads have exhausted the whole job before tests began.
+      # Change only the package transport mirror; keep signed Ubuntu packages/three engines.
+      - name: Prepare bounded browser dependency downloads
+        if: inputs.profile == 'web'
+        timeout-minutes: 2
+        run: sudo "$(command -v node)" _automation/scripts/browser-host.mjs
       - run: npx --no-install playwright install --with-deps chromium firefox webkit
         if: inputs.profile == 'web'
+        timeout-minutes: 10
         working-directory: candidate
       - run: npm run ci:integration
         if: steps.configuration.outputs.integration == 'true'
