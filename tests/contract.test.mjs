@@ -256,12 +256,16 @@ test("both pre-checkout and pre-mutation guards reject every malformed productio
     assert.throws(() => releaseContext({ ...env, CI_SOURCE_SHA: value }));
 });
 
-test("dev ignores enable flags while production still requires its explicit opt-in", () => {
+test("both targets ignore deployment flags while production still requires a fresh manual dispatch", () => {
   for (const enabled of [undefined, "false", "true"]) {
     const values = { ...env, DEPLOY_ENABLED: enabled };
     target({ ...values, CI_ENVIRONMENT: "dev" });
-    if (enabled === "true") target(values);
-    else assert.throws(() => target(values), /Deployment remains disabled/);
+    target(values);
+    assert.throws(() => target({ ...values, GITHUB_EVENT_NAME: "push" }));
+    assert.throws(() =>
+      target({ ...values, GITHUB_EVENT_NAME: "pull_request" }),
+    );
+    assert.throws(() => target({ ...values, GITHUB_RUN_ATTEMPT: "2" }));
   }
 });
 

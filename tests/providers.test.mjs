@@ -57,11 +57,12 @@ async function fixture(run) {
   }
 }
 
-test("web adapter ignores dev opt-ins, rejects stale/wrong targets and never retries uncertain uploads or smoke failures", async () => {
+test("web adapter ignores deployment flags, rejects automatic production/stale/wrong targets and never retries uncertain mutations", async () => {
   for (const scenario of [
     "success",
     "dev-disabled",
-    "production-disabled",
+    "production",
+    "production-automatic",
     "stale",
     "wrong-project",
     "linked",
@@ -73,10 +74,18 @@ test("web adapter ignores dev opt-ins, rejects stale/wrong targets and never ret
       const env = {
         ...baseEnv,
         ...(scenario === "dev-disabled" ? { DEPLOY_ENABLED: "false" } : {}),
-        ...(scenario === "production-disabled"
-          ? { CI_ENVIRONMENT: "production", DEPLOY_ENABLED: "false" }
+        ...(scenario.startsWith("production")
+          ? {
+              CI_ENVIRONMENT: "production",
+              DEPLOY_ENABLED: "false",
+              GITHUB_EVENT_NAME:
+                scenario === "production" ? "workflow_dispatch" : "push",
+            }
           : {}),
       };
+      const build = JSON.parse(readFileSync("ci-build.json", "utf8"));
+      build.environment = env.CI_ENVIRONMENT;
+      writeFileSync("ci-build.json", JSON.stringify(build));
       let mutations = 0;
       let reads = 0;
       let staging;
@@ -107,7 +116,9 @@ test("web adapter ignores dev opt-ins, rejects stale/wrong targets and never ret
                   ? "22.x"
                   : "24.x",
               targets: {
-                production: { id: mutations ? "dpl_created" : "dpl_previous" },
+                production: {
+                  id: mutations ? "dpl_created" : "dpl_previous",
+                },
               },
             });
           }
@@ -170,7 +181,7 @@ test("web adapter ignores dev opt-ins, rejects stale/wrong targets and never ret
           fetcher,
           execute,
         );
-      if (["success", "dev-disabled"].includes(scenario)) {
+      if (["success", "dev-disabled", "production"].includes(scenario)) {
         const record = await run();
         assert.equal(record.previousDeploymentId, "dpl_previous");
         assert.equal(record.status, "smoke-verified-not-user-accepted");
@@ -197,7 +208,8 @@ test("Worker adapter deploys prebundled bytes once and binds active provider ver
   for (const scenario of [
     "success",
     "dev-disabled",
-    "production-disabled",
+    "production",
+    "production-automatic",
     "stale",
     "split",
     "wrong-tag",
@@ -209,10 +221,18 @@ test("Worker adapter deploys prebundled bytes once and binds active provider ver
       const env = {
         ...baseEnv,
         ...(scenario === "dev-disabled" ? { DEPLOY_ENABLED: "false" } : {}),
-        ...(scenario === "production-disabled"
-          ? { CI_ENVIRONMENT: "production", DEPLOY_ENABLED: "false" }
+        ...(scenario.startsWith("production")
+          ? {
+              CI_ENVIRONMENT: "production",
+              DEPLOY_ENABLED: "false",
+              GITHUB_EVENT_NAME:
+                scenario === "production" ? "workflow_dispatch" : "push",
+            }
           : {}),
       };
+      const build = JSON.parse(readFileSync("ci-build.json", "utf8"));
+      build.environment = env.CI_ENVIRONMENT;
+      writeFileSync("ci-build.json", JSON.stringify(build));
       const fetcher = async (input) => {
         const url = new URL(input);
         if (url.hostname === "api.github.com")
@@ -275,7 +295,7 @@ test("Worker adapter deploys prebundled bytes once and binds active provider ver
           fetcher,
           execute,
         );
-      if (["success", "dev-disabled"].includes(scenario)) {
+      if (["success", "dev-disabled", "production"].includes(scenario)) {
         const record = await run();
         assert.equal(record.deploymentId, "version-created");
         assert.equal(record.previousDeploymentId, "version-prior");
