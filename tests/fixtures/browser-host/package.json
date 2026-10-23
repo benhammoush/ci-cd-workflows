@@ -1,0 +1,8 @@
+{
+  "name": "browser-host-contract-fixture",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}

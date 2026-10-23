@@ -42,6 +42,19 @@ historical custom-build hook is passed to privileged Wrangler.
 
 ## Triggers and release evidence
 
+Web verification prepares Ubuntu 24.04 browser dependencies using the official
+HTTPS Ubuntu archive instead of the runner's Azure mirror. Package suites,
+signature verification and all three browser engines are unchanged. APT retries
+and socket timeouts are bounded, with a separate ten-minute installation limit
+inside the unchanged forty-minute verification budget. Installation failure fails
+the job; it never skips a browser or resumes delivery without verification.
+
+Foundation CI validates the host setup by installing and rendering a page with
+Chromium, Firefox and WebKit on Ubuntu 24.04. Consumers still use their own locked
+Playwright version and application-owned browser suites. All six consumers adopt
+the reviewed patch through immutable SHA updates, including Worker profiles whose
+browser-installation step remains disabled.
+
 `CI` checks pull requests and main pushes. Only a successful main push's exact
 merge SHA can automatically deliver dev. A main-only manual CI dispatch can
 revalidate/redeploy an exact merged SHA for dev recovery. Failed, cancelled or PR
