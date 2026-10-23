@@ -93,7 +93,7 @@ jobs:
           SMOKE_BYPASS: ${{ secrets.SMOKE_BYPASS }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           IRIS_REFRESH_TOKEN: ${{ secrets.IRIS_REFRESH_TOKEN }}
-      - name: Retain evidence even after an interrupted mutation or smoke failure
+      - name: Retain evidence even after an interrupted mutation or post-deployment verification failure
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

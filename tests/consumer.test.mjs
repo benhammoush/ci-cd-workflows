@@ -17,7 +17,7 @@ import { digest } from "../scripts/artifact.mjs";
 
 const sha = "a".repeat(40);
 
-test("dev dispatcher always invokes the adapter; production keeps its opt-in", () => {
+test("both environments invoke the adapter regardless of obsolete deployment flags", () => {
   for (const environment of ["dev", "production"])
     for (const enabled of [undefined, "false", "true"])
       for (const name of ["DEPLOY_ENABLED", "DELIVERY_ENABLED"]) {
@@ -88,22 +88,20 @@ test("dev dispatcher always invokes the adapter; production keeps its opt-in", (
               stdio: "pipe",
             },
           );
-          const delivered = environment === "dev" || enabled === "true";
           assert.equal(
             existsSync(join(root, "candidate/delivery-record.json")),
-            delivered,
+            true,
           );
-          assert.equal(existsSync(join(root, "summary.md")), !delivered);
-          if (delivered)
-            assert.deepEqual(
-              JSON.parse(
-                readFileSync(
-                  join(root, "candidate/delivery-record.json"),
-                  "utf8",
-                ),
+          assert.equal(existsSync(join(root, "summary.md")), false);
+          assert.deepEqual(
+            JSON.parse(
+              readFileSync(
+                join(root, "candidate/delivery-record.json"),
+                "utf8",
               ),
-              record,
-            );
+            ),
+            record,
+          );
         } finally {
           rmSync(root, { recursive: true, force: true });
         }

@@ -25,38 +25,22 @@ else if (command === "build-env") {
   env.CI_CONTROL_ROOT = resolve("control");
   for (const name of config.deploymentVariables)
     if (variables[name] !== undefined) env[name] = variables[name];
-  const enabled =
-    env.DEPLOY_ENABLED ??
-    (config.deploymentVariables.includes("DELIVERY_ENABLED")
-      ? env.DELIVERY_ENABLED
-      : undefined);
-  if (env.CI_ENVIRONMENT === "production" && enabled !== "true") {
-    appendFileSync(
-      env.GITHUB_STEP_SUMMARY,
-      "\nDelivery remains disabled; no provider request or deployment occurred.\n",
-    );
-  } else {
-    try {
-      execFileSync(
-        process.execPath,
-        [resolve("control/scripts/ci-deploy.mjs")],
-        {
-          cwd: "candidate",
-          env,
-          // Provider subprocess diagnostics can contain credentials; retain only sanitized records.
-          stdio: ["ignore", "pipe", "pipe"],
-          timeout: 900_000,
-        },
-      );
-    } catch {
-      throw new Error(
-        "Delivery stopped. Inspect the retained checkpoint and provider state before a fresh authorized dispatch.",
-      );
-    }
-    deliveryRecord(
-      JSON.parse(readFileSync("candidate/delivery-record.json", "utf8")),
-      env.CI_SOURCE_SHA,
-      env.CI_ENVIRONMENT,
+  try {
+    execFileSync(process.execPath, [resolve("control/scripts/ci-deploy.mjs")], {
+      cwd: "candidate",
+      env,
+      // Provider subprocess diagnostics can contain credentials; retain only sanitized records.
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 900_000,
+    });
+  } catch {
+    throw new Error(
+      "Delivery stopped. Inspect the retained checkpoint and provider state before a fresh authorized dispatch.",
     );
   }
+  deliveryRecord(
+    JSON.parse(readFileSync("candidate/delivery-record.json", "utf8")),
+    env.CI_SOURCE_SHA,
+    env.CI_ENVIRONMENT,
+  );
 } else throw new Error("Unknown fixed consumer operation");

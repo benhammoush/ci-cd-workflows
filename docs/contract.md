@@ -1,7 +1,7 @@
 # Release contract
 
-Automation 2.0 removes dev deployment opt-ins, an intentional breaking behavior
-change from 1.x. Consumer configuration, artifacts and records retain schema
+Automation 3.0 removes production deployment opt-ins, an intentional breaking behavior
+change from 2.x; dev remains automatic. Consumer configuration, artifacts and records retain schema
 version 1. Adopt only a verified published immutable SHA; local changes do not
 update consumers or authorize deployment.
 
@@ -26,11 +26,11 @@ bundles; it does not deploy. Scripts existing in a package are not proof that
 critical flows, accessibility, authorization or failure states are tested.
 
 The fixed trusted-main `scripts/ci-deploy.mjs` consumes `dist` and `ci-build.json`
-from verification. It validates target configuration and production enablement, uses only
+from verification. It validates target configuration and production dispatch guards, uses only
 the selected target credential, records prior immutable provider identity before
 mutation, deploys without rebuilding tested bytes, and checks provider identity
-plus bounded read-only health/smoke. It writes `delivery-record.json` even on
-uncertain mutation or smoke failure. No application source from a historical
+plus bounded read-only post-deployment verification. It writes `delivery-record.json` even on
+uncertain mutation or post-deployment verification failure. No application source from a historical
 candidate supplies a privileged adapter. Deployment credentials are unavailable
 to verification jobs; provider tokens are step-scoped after native approval.
 
@@ -68,16 +68,21 @@ revalidate/redeploy an exact merged SHA for dev recovery. Failed, cancelled or P
 checks cannot deploy. Deploy jobs have their own non-cancelling environment lock;
 do not put the whole caller workflow under cancelling concurrency.
 
-Dev delivery has no boolean opt-in: absent or false `DEPLOY_ENABLED` and legacy
+Delivery has no boolean opt-in: absent or false `DEPLOY_ENABLED` and legacy
 `DELIVERY_ENABLED` values cannot skip it. Missing configuration or credentials
 fails delivery rather than reporting a successful disabled no-op. Production
-enablement, manual dispatch, dev evidence and native approval remain unchanged.
+manual dispatch, dev evidence and native approval remain unchanged. Not dispatching
+the production workflow is the normal hold; native approval remains a separate gate.
+Do not remove live flags until the verified immutable 3.0 release is adopted by
+each consumer. Update project adapters and variable allowlists with that pin;
+older releases still require their production flags. No production execution is
+authorized by adopting this change.
 
 `Deploy production` is a separate manual, main-only entry point. Require a full
 merged SHA, retained successful same-repository dev delivery for that SHA,
 target-configured verification, and native production approval. The owner checks
 current dev acceptance, compatibility/configuration and eligible recovery before
-approval. A selected SHA and successful smoke never imply human acceptance.
+approval. A selected SHA and successful post-deployment verification never imply human acceptance.
 Production reruns are rejected; inspect provider state and start a fresh approved
 dispatch after any uncertain or failed mutation. There is no automatic rollback.
 
@@ -97,7 +102,7 @@ artifact. Retain both artifact and configuration identities.
 - Artifacts: `build-<full-source-sha>-<environment>` and `delivery-record-<environment>`.
 - Record: `delivery-record.json`, schemaVersion 1, camelCase fields including
   sourceSha, environment, artifactDigest, configurationDigest, workflowRunId,
-  deploymentId, previousDeploymentId and status. Completed smoke status is exactly
+  deploymentId, previousDeploymentId and status. Completed post-deployment verification status is exactly
   `smoke-verified-not-user-accepted`; a null predecessor explicitly means no known
   prior restore identity, not proof of recovery readiness. Extra provider fields
   retain project-specific evidence rather than discarding it.
