@@ -23,7 +23,6 @@ const baseEnv = {
   GITHUB_RUN_ATTEMPT: "1",
   GITHUB_RUN_ID: "10",
   GITHUB_REPOSITORY: "owner/app",
-  DEPLOY_ENABLED: "true",
   GH_TOKEN: "synthetic-github",
   VERCEL_TOKEN: "synthetic-vercel",
   VERCEL_ORG_ID: "team_test",
@@ -58,10 +57,11 @@ async function fixture(run) {
   }
 }
 
-test("web adapter rejects disabled/stale/wrong targets and never retries uncertain uploads or smoke failures", async () => {
+test("web adapter ignores dev opt-ins, rejects stale/wrong targets and never retries uncertain uploads or smoke failures", async () => {
   for (const scenario of [
     "success",
-    "disabled",
+    "dev-disabled",
+    "production-disabled",
     "stale",
     "wrong-project",
     "linked",
@@ -72,7 +72,10 @@ test("web adapter rejects disabled/stale/wrong targets and never retries uncerta
     await fixture(async () => {
       const env = {
         ...baseEnv,
-        ...(scenario === "disabled" ? { DEPLOY_ENABLED: "false" } : {}),
+        ...(scenario === "dev-disabled" ? { DEPLOY_ENABLED: "false" } : {}),
+        ...(scenario === "production-disabled"
+          ? { CI_ENVIRONMENT: "production", DEPLOY_ENABLED: "false" }
+          : {}),
       };
       let mutations = 0;
       let reads = 0;
@@ -167,7 +170,7 @@ test("web adapter rejects disabled/stale/wrong targets and never retries uncerta
           fetcher,
           execute,
         );
-      if (scenario === "success") {
+      if (["success", "dev-disabled"].includes(scenario)) {
         const record = await run();
         assert.equal(record.previousDeploymentId, "dpl_previous");
         assert.equal(record.status, "smoke-verified-not-user-accepted");
@@ -193,7 +196,8 @@ test("web adapter rejects disabled/stale/wrong targets and never retries uncerta
 test("Worker adapter deploys prebundled bytes once and binds active provider version to exact source/artifact", async () => {
   for (const scenario of [
     "success",
-    "disabled",
+    "dev-disabled",
+    "production-disabled",
     "stale",
     "split",
     "wrong-tag",
@@ -204,7 +208,10 @@ test("Worker adapter deploys prebundled bytes once and binds active provider ver
       let mutations = 0;
       const env = {
         ...baseEnv,
-        ...(scenario === "disabled" ? { DEPLOY_ENABLED: "false" } : {}),
+        ...(scenario === "dev-disabled" ? { DEPLOY_ENABLED: "false" } : {}),
+        ...(scenario === "production-disabled"
+          ? { CI_ENVIRONMENT: "production", DEPLOY_ENABLED: "false" }
+          : {}),
       };
       const fetcher = async (input) => {
         const url = new URL(input);
@@ -268,7 +275,7 @@ test("Worker adapter deploys prebundled bytes once and binds active provider ver
           fetcher,
           execute,
         );
-      if (scenario === "success") {
+      if (["success", "dev-disabled"].includes(scenario)) {
         const record = await run();
         assert.equal(record.deploymentId, "version-created");
         assert.equal(record.previousDeploymentId, "version-prior");

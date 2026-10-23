@@ -24,11 +24,11 @@ export function fingerprint(value) {
 
 /** Reject target/source/rerun mistakes before any provider access. */
 export function target(env) {
-  assert.equal(env.DEPLOY_ENABLED, "true", "Deployment remains disabled");
   assert.equal(env.GITHUB_REF, "refs/heads/main");
   assert.match(env.CI_SOURCE_SHA ?? "", /^[a-f0-9]{40}$/);
   assert.ok(["dev", "production"].includes(env.CI_ENVIRONMENT));
   if (env.CI_ENVIRONMENT === "production") {
+    assert.equal(env.DEPLOY_ENABLED, "true", "Deployment remains disabled");
     assert.equal(env.GITHUB_EVENT_NAME, "workflow_dispatch");
     assert.equal(env.GITHUB_RUN_ATTEMPT, "1");
   }

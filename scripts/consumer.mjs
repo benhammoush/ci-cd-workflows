@@ -30,7 +30,7 @@ else if (command === "build-env") {
     (config.deploymentVariables.includes("DELIVERY_ENABLED")
       ? env.DELIVERY_ENABLED
       : undefined);
-  if (enabled !== "true") {
+  if (env.CI_ENVIRONMENT === "production" && enabled !== "true") {
     appendFileSync(
       env.GITHUB_STEP_SUMMARY,
       "\nDelivery remains disabled; no provider request or deployment occurred.\n",

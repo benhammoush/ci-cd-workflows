@@ -256,6 +256,15 @@ test("both pre-checkout and pre-mutation guards reject every malformed productio
     assert.throws(() => releaseContext({ ...env, CI_SOURCE_SHA: value }));
 });
 
+test("dev ignores enable flags while production still requires its explicit opt-in", () => {
+  for (const enabled of [undefined, "false", "true"]) {
+    const values = { ...env, DEPLOY_ENABLED: enabled };
+    target({ ...values, CI_ENVIRONMENT: "dev" });
+    if (enabled === "true") target(values);
+    else assert.throws(() => target(values), /Deployment remains disabled/);
+  }
+});
+
 test("shared verification gates candidate execution and retains failure diagnostics", () => {
   const value = workflow(readFileSync(".github/workflows/verify.yml", "utf8"));
   const steps = value.jobs.verify.steps;
