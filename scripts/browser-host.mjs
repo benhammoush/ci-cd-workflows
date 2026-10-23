@@ -20,9 +20,11 @@ export function browserHost(root = "/") {
   const release = readFileSync(join(root, "etc/os-release"), "utf8");
   assert.match(release, /^ID=(?:ubuntu|"ubuntu")$/m);
   assert.match(release, /^VERSION_ID=(?:24\.04|"24\.04")$/m);
+  // Hosted runners may route both formats through a mirror+file source instead.
   const sources = [
     "etc/apt/sources.list",
     "etc/apt/sources.list.d/ubuntu.sources",
+    "etc/apt/apt-mirrors.txt",
   ]
     .map((path) => join(root, path))
     .filter(existsSync);
@@ -30,7 +32,20 @@ export function browserHost(root = "/") {
   for (const path of sources) {
     const original = readFileSync(path, "utf8");
     const updated = ubuntuMirror(original);
+    if (updated.includes("mirror+file:/etc/apt/apt-mirrors.txt")) {
+      assert.ok(
+        existsSync(join(root, "etc/apt/apt-mirrors.txt")),
+        "Referenced Ubuntu mirror list is missing",
+      );
+    }
     if (updated !== original) writeFileSync(path, updated);
+  }
+  for (const path of sources) {
+    assert.doesNotMatch(
+      readFileSync(path, "utf8"),
+      /https?:\/\/azure\.archive\.ubuntu\.com\/ubuntu(?=[/\s]|$)/,
+      "Azure mirror remains in effective Ubuntu package configuration",
+    );
   }
   writeFileSync(
     join(root, "etc/apt/apt.conf.d/80-ci-cd-network"),

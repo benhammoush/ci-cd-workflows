@@ -93,6 +93,30 @@ test("rejects unsupported runner releases and missing package sources before con
     assert.throws(() => browserHost(root));
   }));
 
+test("updates the hosted runner mirror+file layout rather than leaving Azure active", () =>
+  fixture((root) => {
+    const source =
+      "deb mirror+file:/etc/apt/apt-mirrors.txt noble main universe\n";
+    writeFileSync(join(root, "etc/apt/sources.list"), source);
+    assert.throws(() => browserHost(root), /mirror list is missing/);
+    writeFileSync(
+      join(root, "etc/apt/apt-mirrors.txt"),
+      "http://azure.archive.ubuntu.com/ubuntu\tpriority:1\nhttps://archive.ubuntu.com/ubuntu\tpriority:2\n",
+    );
+    browserHost(root);
+    browserHost(root);
+    assert.equal(
+      readFileSync(join(root, "etc/apt/sources.list"), "utf8"),
+      source,
+    );
+    const mirrors = readFileSync(join(root, "etc/apt/apt-mirrors.txt"), "utf8");
+    assert.equal(
+      mirrors,
+      "https://archive.ubuntu.com/ubuntu\tpriority:1\nhttps://archive.ubuntu.com/ubuntu\tpriority:2\n",
+    );
+    assert.ok(!mirrors.includes("azure.archive.ubuntu.com"));
+  }));
+
 test("web installation is bounded without weakening runner, job budget or engine coverage", () => {
   const workflow = parse(
     readFileSync(
