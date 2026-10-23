@@ -43,7 +43,9 @@ historical custom-build hook is passed to privileged Wrangler.
 ## Triggers and release evidence
 
 Web verification prepares Ubuntu 24.04 browser dependencies using the official
-HTTPS Ubuntu archive instead of the runner's Azure mirror. Package suites,
+HTTPS Ubuntu archive instead of the runner's Azure mirror, including hosted
+runner configurations that resolve sources through `/etc/apt/apt-mirrors.txt`.
+Preparation verifies that Azure is absent from all supported source layouts. Package suites,
 signature verification and all three browser engines are unchanged. APT retries
 and socket timeouts are bounded, with a separate ten-minute installation limit
 inside the unchanged forty-minute verification budget. Installation failure fails
