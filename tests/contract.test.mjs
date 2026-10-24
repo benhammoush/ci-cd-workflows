@@ -18,6 +18,7 @@ import { digest, artifact, deliveryRecord } from "../scripts/artifact.mjs";
 import { devEvidence } from "../scripts/dev-evidence.mjs";
 import { releaseContext } from "../scripts/source.mjs";
 import { target } from "../scripts/providers.mjs";
+import { render } from "../scripts/render.mjs";
 
 const sha = "a".repeat(40);
 const hash = "b".repeat(64);
@@ -90,6 +91,104 @@ function fixture(profile, run) {
 test("web and Worker starter templates conform to the same release and naming contract", () => {
   for (const profile of ["web", "worker"])
     fixture(profile, (root) => assert.equal(consumer(root).profile, profile));
+});
+
+test("the stable Verify check cannot skip, mask failures or execute candidate commands", () => {
+  for (const mutate of [
+    (value) => {
+      delete value.jobs.verify_result;
+    },
+    (value) => {
+      value.jobs.verify_result.name = "quality";
+    },
+    (value) => {
+      value.jobs.verify_result.if = "success()";
+    },
+    (value) => {
+      value.jobs.verify_result.steps[0].run = "true";
+    },
+    (value) => {
+      value.jobs.verify_result.steps[0].env.VERIFY_RESULT = "success";
+    },
+    (value) => {
+      value.jobs.verify_result["continue-on-error"] = true;
+    },
+  ])
+    fixture("web", (root) => {
+      const path = join(root, ".github/workflows/ci.yml");
+      const value = parse(readFileSync(path, "utf8"));
+      mutate(value);
+      writeFileSync(path, stringify(value));
+      assert.throws(() => consumer(root));
+    });
+});
+
+test("rendering supplies canonical names while preserving explicitly requested legacy aliases", () => {
+  for (const profile of ["web", "worker"])
+    fixture(profile, (root) => {
+      writeFileSync(
+        join(root, ".github/ci-cd.json"),
+        JSON.stringify({
+          ...config,
+          profile,
+          legacyChecks: ["old-required-check"],
+        }),
+      );
+      render(root);
+      const ci = parse(
+        readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"),
+      );
+      assert.equal(ci.jobs.verify_result.name, "Verify");
+      assert.equal(ci.jobs.legacy_0.name, "old-required-check");
+      assert.equal(consumer(root).profile, profile);
+    });
+});
+
+test("shared job labels distinguish dev verification and deployment from production", () => {
+  const verify = workflow(readFileSync(".github/workflows/verify.yml", "utf8"));
+  const deploy = workflow(readFileSync(".github/workflows/deploy.yml", "utf8"));
+  assert.equal(
+    verify.jobs.verify.name,
+    "${{ inputs.environment == 'production' && 'Verify production' || 'Verify' }}",
+  );
+  assert.equal(
+    deploy.jobs.deploy.name,
+    "${{ inputs.environment == 'production' && 'Deploy production' || 'Deploy dev' }}",
+  );
+});
+
+test("workflow comments stay in a short header, including generated callers", () => {
+  for (const path of [
+    ...readdirSync(".github/workflows").map(
+      (name) => `.github/workflows/${name}`,
+    ),
+    "templates/web/ci.yml",
+    "templates/web/deploy-production.yml",
+    "templates/worker/ci.yml",
+    "templates/worker/deploy-production.yml",
+    "templates/weekly-vuln-audit.yml",
+  ]) {
+    const lines = readFileSync(path, "utf8").split(/\r?\n/);
+    const comments = lines.flatMap((line, index) =>
+      /^\s*#/.test(line) ? [index] : [],
+    );
+    assert.ok(comments.length >= 1 && comments.length <= 2, path);
+    assert.deepEqual(
+      comments,
+      comments.map((_, index) => index),
+      path,
+    );
+  }
+  fixture("web", (root) => {
+    render(root);
+    const lines = readFileSync(
+      join(root, ".github/workflows/ci.yml"),
+      "utf8",
+    ).split(/\r?\n/);
+    assert.ok(lines[0].startsWith("# Verifies PRs"));
+    assert.ok(lines[1].startsWith("# Calls the shared"));
+    assert.ok(lines.slice(2).every((line) => !/^\s*#/.test(line)));
+  });
 });
 
 test("consumer checks reject floating references, wrong targets, missing dependencies and missing main checks", () => {

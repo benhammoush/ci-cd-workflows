@@ -1,0 +1,18 @@
+# Replace the placeholder with the reviewed, published SHA containing this workflow.
+# Calls the shared vulnerability audit weekly or manually; no fixes or deployment.
+name: Weekly vulnerability audit
+on:
+  schedule:
+    - cron: "23 8 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: weekly-vuln-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    name: Audit vulnerabilities
+    uses: benhammoush/ci-cd-workflows/.github/workflows/weekly-vuln-audit.yml@PENDING_SHARED_WORKFLOW_SHA
+    with:
+      node_version: "24"

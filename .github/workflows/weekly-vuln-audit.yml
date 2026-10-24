@@ -1,0 +1,33 @@
+# Called by application weekly/manual audit entry points to check full and production dependencies.
+# Reports vulnerabilities only; never fixes dependencies or deploys.
+name: Weekly vulnerability audit
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  audit:
+    name: Audit vulnerabilities
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - name: Install locked dependencies without lifecycle scripts
+        id: install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Audit all dependencies
+        run: npm audit --include=dev --include=optional --include=peer --audit-level=info
+      - name: Audit production dependencies
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm audit --omit=dev --include=optional --include=peer --audit-level=info

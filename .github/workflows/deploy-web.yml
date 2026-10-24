@@ -1,3 +1,5 @@
+# Called by web applications: ci.yml delivers dev; deploy-production.yml releases production.
+# Delegates tested-artifact deployment to deploy.yml using named Vercel credentials.
 name: Deploy web
 on:
   workflow_call:
