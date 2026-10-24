@@ -1,3 +1,5 @@
+# Shared deployment implementation, called through deploy-web.yml or deploy-worker.yml.
+# Deploys the caller's verified artifact with environment approval, dev-evidence checks and serialization.
 name: Deploy checked artifact
 on:
   workflow_call:
@@ -31,7 +33,7 @@ permissions:
   actions: read
 jobs:
   deploy:
-    name: Deploy
+    name: ${{ inputs.environment == 'production' && 'Deploy production' || 'Deploy dev' }}
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 30

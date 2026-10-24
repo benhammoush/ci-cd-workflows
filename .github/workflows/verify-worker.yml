@@ -1,3 +1,5 @@
+# Called by ci.yml and deploy-production.yml in Worker API repositories.
+# Delegates API checks and bundle preparation to verify.yml, without browser tests.
 name: Verify worker
 on:
   workflow_call:

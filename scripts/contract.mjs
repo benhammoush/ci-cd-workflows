@@ -120,6 +120,22 @@ export function consumer(root) {
     assert.notEqual(job.secrets, "inherit", "Pass only named provider secrets");
   }
   assert.equal(ci.jobs.deploy_dev.needs, "verify");
+  assert.equal(ci.jobs.verify.name, "Verify");
+  assert.equal(ci.jobs.deploy_dev.name, "Deploy dev");
+  assert.equal(production.jobs.verify_release.name, "Verify production");
+  assert.equal(production.jobs.deploy_production.name, "Deploy production");
+  assert.deepEqual(ci.jobs.verify_result, {
+    name: "Verify",
+    needs: "verify",
+    if: "always()",
+    "runs-on": RUNNER,
+    steps: [
+      {
+        run: 'test "$VERIFY_RESULT" = success',
+        env: { VERIFY_RESULT: "${{ needs.verify.result }}" },
+      },
+    ],
+  });
   assert.deepEqual(Object.keys(ci.on).sort(), [
     "pull_request",
     "push",

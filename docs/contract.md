@@ -5,6 +5,11 @@ change from 2.x; dev remains automatic. Consumer configuration, artifacts and re
 version 1. Adopt only a verified published immutable SHA; local changes do not
 update consumers or authorize deployment.
 
+Automation 4.0 standardizes job/check names and adds the independently callable
+weekly vulnerability audit. Check names are a breaking public API change; consumer
+configuration remains schema version 1. Native protection migration requires
+separate owner approval and readback; local source edits never change protections.
+
 ## Ownership and adoption
 
 There are two profiles: web frontends and Worker backends. Applications retain
@@ -95,6 +100,78 @@ different dev/production bytes: verify each configured build, then deploy its ex
 artifact. Retain both artifact and configuration identities.
 
 ## Naming and compatibility
+
+### Canonical job names and required-check migration
+
+All six application callers use `Verify`, `Deploy dev`, `Verify production`,
+`Deploy production` and `Audit vulnerabilities`. Reusable workflows may add caller
+prefixes in GitHub's UI. A standalone `verify_result` job named exactly `Verify`
+provides the stable required-check context: it always runs after verification and
+passes only when verification succeeded, including its integration/browser checks.
+It does not run the tests twice. Deployment and production jobs are not PR merge
+requirements.
+
+The prepared consumers set `legacyChecks: []` and replace old result bridges with
+`verify_result`. The configuration field remains supported for consumers that
+still need compatibility aliases; the renderer must not silently remove those.
+Current native requirements still use these old names (read Oct 23, 2026):
+
+| Repository              | Existing verification check names to replace |
+| ----------------------- | -------------------------------------------- |
+| iris-frontend           | `test-and-build`, `vertical`                 |
+| iris-backend            | `test`                                       |
+| crypto_gateway_frontend | `quality`, `browser`                         |
+| crypto_gateway_backend  | `quality`                                    |
+| Dripperz                | `Quality and build`, `Browser smoke`         |
+| portfolio               | `Foundation quality`                         |
+
+Do not merge these prepared naming changes under unchanged protections. For each
+repository, after separate publication/settings authorization:
+
+1. Publish and review the shared 4.0 workflow revision. Update the consumer's
+   `automationSha` and every reusable release reference to that same published
+   immutable SHA. Activate its pending audit caller at that SHA too.
+2. Publish the consumer PR and require successful checks on its exact current
+   head. Confirm that standalone `Verify` is reported by GitHub Actions
+   (app ID 15368), not just a nested job with a similar name. Check a failing or
+   skipped verification cannot produce a successful `Verify` result.
+3. With explicit owner approval, replace only the old verification requirements
+   with app-bound `Verify`; retain strict mode and app-bound `CodeRabbit`
+   (app ID 347564). Preserve independent reviews, stale-review dismissal,
+   resolved conversations, administrator enforcement and all other protections.
+   Read back the resulting requirements before allowing the merge.
+4. Merge only after the new required checks and current-head approval pass.
+   Main CI can deploy dev as usual; this migration authorizes no production run.
+
+Do not temporarily disable protection or bypass a missing check. If a naming PR
+is abandoned after the settings switch, restore the old required contexts under
+fresh owner approval before merging unrelated PRs that do not emit `Verify`.
+No remote settings have been changed by preparing this rollout.
+
+### Weekly vulnerability audits
+
+Applications use `weekly-vuln-audit.yml` / `Weekly vulnerability audit`
+to call the shared `weekly-vuln-audit.yml` at a reviewed, published immutable
+SHA. The starter is `templates/weekly-vuln-audit.yml`; replace its SHA
+placeholder and use the application's supported Node version. Keep schedules on
+Monday UTC, staggered across consumers, plus a manual trigger. Execution is
+main-only, read-only and has no environment or deployment secrets.
+
+The audit installs locked dependencies without lifecycle scripts, then checks the
+full and production-only trees against the configured npm registry. Any advisory
+severity fails the run; registry/install errors also fail rather than certifying
+safety. The production report still runs if the full audit finds vulnerabilities.
+No automatic fixes, dependency upgrades, releases or deployments occur. Reports
+are in Actions logs; GitHub notification settings control delivery to maintainers.
+This supplements, rather than replaces, dependency checks in normal CI.
+
+Locally prepared consumer files ending in `.yml.pending` are intentionally inactive.
+Before publishing consumer changes, replace `PENDING_SHARED_WORKFLOW_SHA` with
+the reviewed published shared-workflow SHA and remove `.pending`. Verify that the
+workflow exists at that SHA. Do not merge the Iris audit deletions until their
+replacement callers are activated in the same consumer change.
+
+### Release naming
 
 - Files: lowercase kebab-case; jobs and step IDs: lower snake_case.
 - Entry points: `ci.yml` / `CI`, `deploy-production.yml` / `Deploy production`.

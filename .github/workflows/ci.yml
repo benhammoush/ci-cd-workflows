@@ -1,3 +1,5 @@
+# Tests this shared automation repository, not the applications that use it.
+# Runs on this repo's PRs and main pushes; application workflows do not call it.
 name: CI
 on:
   pull_request:
