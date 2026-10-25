@@ -24,9 +24,8 @@ export function releaseContext(env) {
       "Inspect failures; use a fresh production dispatch",
     );
     assert.ok(
-      env.GITHUB_WORKFLOW_REF?.includes(
-        "/.github/workflows/deploy-production.yml@refs/heads/main",
-      ),
+      env.GITHUB_WORKFLOW_REF ===
+        `${env.GITHUB_REPOSITORY}/.github/workflows/verify-and-deploy-prod.yml@refs/heads/main`,
     );
   }
 }

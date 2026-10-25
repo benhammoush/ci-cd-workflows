@@ -1,6 +1,6 @@
 # Manually verifies and releases an exact dev-accepted source revision to production.
 # Calls shared CI/CD workflows with native environment approval.
-name: Deploy production
+name: Verify and deploy to prod
 on:
   workflow_dispatch:
     inputs:
@@ -13,7 +13,7 @@ permissions:
   actions: read
 jobs:
   verify_release:
-    name: Verify production
+    name: Production checks
     uses: benhammoush/ci-cd-workflows/.github/workflows/verify-web.yml@__AUTOMATION_SHA__
     with:
       automation_sha: "__AUTOMATION_SHA__"
@@ -21,7 +21,7 @@ jobs:
       environment: production
       node_version: "__NODE_VERSION__"
   deploy_production:
-    name: Deploy production
+    name: Production delivery
     needs: verify_release
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     uses: benhammoush/ci-cd-workflows/.github/workflows/deploy-web.yml@__AUTOMATION_SHA__

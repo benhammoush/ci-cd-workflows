@@ -24,7 +24,7 @@ permissions:
   actions: read
 jobs:
   verify:
-    name: ${{ inputs.environment == 'production' && 'Verify production' || 'Verify' }}
+    name: Tests and build
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:

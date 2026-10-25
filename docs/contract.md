@@ -10,6 +10,15 @@ weekly vulnerability audit. Check names are a breaking public API change; consum
 configuration remains schema version 1. Native protection migration requires
 separate owner approval and readback; local source edits never change protections.
 
+Automation 5.0 splits PR verification from main-to-dev delivery and renames the
+production entry point. These filenames and nested job labels are breaking public
+API changes. Adopt the shared revision and all three consumer callers together;
+v4 pins cannot validate the new layout. Artifact/configuration schemas, deployment
+behavior and native production approval remain unchanged.
+Remove the retired `ci.yml` and `deploy-production.yml` callers before rendering
+the new templates. Rendering and conformance fail rather than leave competing
+entry points that could deliver the same revision twice.
+
 ## Ownership and adoption
 
 There are two profiles: web frontends and Worker backends. Applications retain
@@ -67,8 +76,10 @@ Playwright version and application-owned browser suites. All six consumers adopt
 the reviewed patch through immutable SHA updates, including Worker profiles whose
 browser-installation step remains disabled.
 
-`CI` checks pull requests and main pushes. Only a successful main push's exact
-merge SHA can automatically deliver dev. A main-only manual CI dispatch can
+`Verify PR` runs on PR creation, updates and reopening. It only verifies the PR
+merge revision; it has no deployment job, target environment or provider secrets.
+`Verify and deploy to dev` runs on main pushes. Only a successful main push's exact
+merge SHA can automatically deliver dev. A main-only manual dev-workflow dispatch can
 revalidate/redeploy an exact merged SHA for dev recovery. Failed, cancelled or PR
 checks cannot deploy. Deploy jobs have their own non-cancelling environment lock;
 do not put the whole caller workflow under cancelling concurrency.
@@ -83,7 +94,7 @@ each consumer. Update project adapters and variable allowlists with that pin;
 older releases still require their production flags. No production execution is
 authorized by adopting this change.
 
-`Deploy production` is a separate manual, main-only entry point. Require a full
+`Verify and deploy to prod` is a separate manual, main-only entry point. Require a full
 merged SHA, retained successful same-repository dev delivery for that SHA,
 target-configured verification, and native production approval. The owner checks
 current dev acceptance, compatibility/configuration and eligible recovery before
@@ -91,7 +102,11 @@ approval. A selected SHA and successful post-deployment verification never imply
 Production reruns are rejected; inspect provider state and start a fresh approved
 dispatch after any uncertain or failed mutation. There is no automatic rollback.
 
-Evidence lookup is deliberately bounded to the newest 500 successful CI runs.
+Evidence lookup is deliberately bounded to the newest 500 successful main runs.
+Only `verify-and-deploy-dev.yml` and the historical `ci.yml` may supply dev
+delivery evidence; PR verification, audits and production runs cannot. Historical
+CI records remain eligible only under the same event, repository, artifact and
+exact-source checks, so renaming does not discard retained release evidence.
 Expired/missing/mismatched artifacts fail closed; revalidate the candidate in dev
 instead of choosing another SHA or claiming an old deployment is still current.
 GitHub Actions read access uses its built-in token, never another PAT or a dev
@@ -103,9 +118,12 @@ artifact. Retain both artifact and configuration identities.
 
 ### Canonical job names and required-check migration
 
-All six application callers use `Verify`, `Deploy dev`, `Verify production`,
-`Deploy production` and `Audit vulnerabilities`. Reusable workflows may add caller
-prefixes in GitHub's UI. A standalone `verify_result` job named exactly `Verify`
+Application callers use `PR checks`, `Dev checks`, `Dev delivery`,
+`Production checks` and `Production delivery`; weekly audits remain unchanged.
+Reusable layers describe the work: `Web validation` or `Worker validation`,
+then `Tests and build`; `Vercel deployment` or `Cloudflare deployment`, then
+`Publish tested artifact`. GitHub displays these as nested paths rather than
+repeating Verify at each level. A standalone PR `verify_result` job named exactly `Verify`
 provides the stable required-check context: it always runs after verification and
 passes only when verification succeeded, including its integration/browser checks.
 It does not run the tests twice. Deployment and production jobs are not PR merge
@@ -114,7 +132,10 @@ requirements.
 The prepared consumers set `legacyChecks: []` and replace old result bridges with
 `verify_result`. The configuration field remains supported for consumers that
 still need compatibility aliases; the renderer must not silently remove those.
-Current native requirements still use these old names (read Oct 23, 2026):
+All six native protections required app-bound `Verify` and `CodeRabbit` when read
+on October 25, 2026. Moving the standalone result to `verify-pr.yml` preserves
+that context without changing protection. The older migration inventory below is
+historical (read October 23, 2026), not the current required-check configuration:
 
 | Repository              | Existing verification check names to replace |
 | ----------------------- | -------------------------------------------- |
@@ -128,20 +149,20 @@ Current native requirements still use these old names (read Oct 23, 2026):
 Do not merge these prepared naming changes under unchanged protections. For each
 repository, after separate publication/settings authorization:
 
-1. Publish and review the shared 4.0 workflow revision. Update the consumer's
+1. Publish and review the shared 5.0 workflow revision. Update the consumer's
    `automationSha` and every reusable release reference to that same published
    immutable SHA. Activate its pending audit caller at that SHA too.
 2. Publish the consumer PR and require successful checks on its exact current
    head. Confirm that standalone `Verify` is reported by GitHub Actions
    (app ID 15368), not just a nested job with a similar name. Check a failing or
    skipped verification cannot produce a successful `Verify` result.
-3. With explicit owner approval, replace only the old verification requirements
+3. Only if old requirements remain, with explicit owner approval replace those verification requirements
    with app-bound `Verify`; retain strict mode and app-bound `CodeRabbit`
    (app ID 347564). Preserve independent reviews, stale-review dismissal,
    resolved conversations, administrator enforcement and all other protections.
    Read back the resulting requirements before allowing the merge.
 4. Merge only after the new required checks and current-head approval pass.
-   Main CI can deploy dev as usual; this migration authorizes no production run.
+   The dev workflow can deploy dev as usual; this migration authorizes no production run.
 
 Do not temporarily disable protection or bypass a missing check. If a naming PR
 is abandoned after the settings switch, restore the old required contexts under
@@ -174,7 +195,9 @@ replacement callers are activated in the same consumer change.
 ### Release naming
 
 - Files: lowercase kebab-case; jobs and step IDs: lower snake_case.
-- Entry points: `ci.yml` / `CI`, `deploy-production.yml` / `Deploy production`.
+- Entry points: `verify-pr.yml` / `Verify PR`,
+  `verify-and-deploy-dev.yml` / `Verify and deploy to dev`,
+  `verify-and-deploy-prod.yml` / `Verify and deploy to prod`.
 - Environments: exactly `dev` and `production`; variables/secrets: UPPER_SNAKE_CASE.
 - Artifacts: `build-<full-source-sha>-<environment>` and `delivery-record-<environment>`.
 - Record: `delivery-record.json`, schemaVersion 1, camelCase fields including

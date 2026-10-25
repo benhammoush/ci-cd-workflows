@@ -63,13 +63,17 @@ export async function devEvidence(
   assert.ok(env.GH_TOKEN);
   for (let page = 1; page <= 5; page++) {
     const { workflow_runs: runs } = await read(
-      `/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=100&page=${page}`,
+      `/actions/runs?branch=main&status=success&per_page=100&page=${page}`,
       env,
     );
     for (const run of runs) {
       if (
         run.conclusion !== "success" ||
         run.head_branch !== "main" ||
+        ![
+          ".github/workflows/verify-and-deploy-dev.yml",
+          ".github/workflows/ci.yml",
+        ].includes(run.path) ||
         !["push", "workflow_dispatch"].includes(run.event) ||
         run.head_repository?.full_name?.toLowerCase() !==
           env.GITHUB_REPOSITORY.toLowerCase()
