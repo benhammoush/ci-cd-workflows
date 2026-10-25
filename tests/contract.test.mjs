@@ -41,7 +41,7 @@ const env = {
   GITHUB_REPOSITORY: "owner/application",
   GH_TOKEN: "synthetic",
   GITHUB_WORKFLOW_REF:
-    "owner/application/.github/workflows/deploy-production.yml@refs/heads/main",
+    "owner/application/.github/workflows/verify-and-deploy-prod.yml@refs/heads/main",
 };
 const record = {
   schemaVersion: 1,
@@ -73,7 +73,11 @@ function fixture(profile, run) {
         },
       }),
     );
-    for (const name of ["ci.yml", "deploy-production.yml"]) {
+    for (const name of [
+      "verify-pr.yml",
+      "verify-and-deploy-dev.yml",
+      "verify-and-deploy-prod.yml",
+    ]) {
       const text = readFileSync(
         new URL(`../templates/${profile}/${name}`, import.meta.url),
         "utf8",
@@ -91,6 +95,49 @@ function fixture(profile, run) {
 test("web and Worker starter templates conform to the same release and naming contract", () => {
   for (const profile of ["web", "worker"])
     fixture(profile, (root) => assert.equal(consumer(root).profile, profile));
+});
+
+test("PR verification cannot deploy, change source, receive secrets or acquire non-PR triggers", () => {
+  for (const mutate of [
+    (value) => {
+      value.on.push = { branches: ["main"] };
+    },
+    (value) => {
+      value.on.pull_request = { types: ["closed"] };
+    },
+    (value) => {
+      value.jobs.deploy_dev = value.jobs.verify;
+    },
+    (value) => {
+      value.jobs.verify.with.source_sha = "${{ inputs.sha }}";
+    },
+    (value) => {
+      value.jobs.verify.secrets = "inherit";
+    },
+    (value) => {
+      value.jobs.verify.environment = "dev";
+    },
+    (value) => {
+      value.permissions["id-token"] = "write";
+    },
+  ])
+    fixture("web", (root) => {
+      const path = join(root, ".github/workflows/verify-pr.yml");
+      const value = parse(readFileSync(path, "utf8"));
+      mutate(value);
+      writeFileSync(path, stringify(value));
+      assert.throws(() => consumer(root));
+    });
+});
+
+test("migration rejects retired entry points instead of leaving competing delivery triggers", () => {
+  for (const name of ["ci.yml", "deploy-production.yml"])
+    fixture("web", (root) => {
+      writeFileSync(join(root, ".github/workflows", name), "name: Retired\n");
+      assert.throws(() => consumer(root), /Remove retired entry point/);
+      assert.throws(() => render(root), /Remove retired entry point/);
+      assert.throws(() => render(root, true), /Remove retired entry point/);
+    });
 });
 
 test("the stable Verify check cannot skip, mask failures or execute candidate commands", () => {
@@ -115,7 +162,7 @@ test("the stable Verify check cannot skip, mask failures or execute candidate co
     },
   ])
     fixture("web", (root) => {
-      const path = join(root, ".github/workflows/ci.yml");
+      const path = join(root, ".github/workflows/verify-pr.yml");
       const value = parse(readFileSync(path, "utf8"));
       mutate(value);
       writeFileSync(path, stringify(value));
@@ -131,30 +178,40 @@ test("rendering supplies canonical names while preserving explicitly requested l
         JSON.stringify({
           ...config,
           profile,
-          legacyChecks: ["old-required-check"],
+          legacyChecks: ["old-required-check", "Verify"],
+          manualRefresh: true,
+          lockScope: "all",
         }),
       );
       render(root);
       const ci = parse(
-        readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"),
+        readFileSync(join(root, ".github/workflows/verify-pr.yml"), "utf8"),
       );
       assert.equal(ci.jobs.verify_result.name, "Verify");
       assert.equal(ci.jobs.legacy_0.name, "old-required-check");
       assert.equal(consumer(root).profile, profile);
+      render(root, true);
+      assert.equal(
+        Object.values(ci.jobs).filter((job) => job.name === "Verify").length,
+        1,
+      );
+      const dev = parse(
+        readFileSync(
+          join(root, ".github/workflows/verify-and-deploy-dev.yml"),
+          "utf8",
+        ),
+      );
+      assert.equal(dev.on.workflow_dispatch.inputs.refresh_dev.default, false);
+      assert.equal(dev.jobs.deploy_dev.with.lock_scope, "all");
+      assert.ok(!ci.on.workflow_dispatch && !ci.jobs.deploy_dev);
     });
 });
 
-test("shared job labels distinguish dev verification and deployment from production", () => {
+test("shared job labels describe each layer instead of repeating Verify", () => {
   const verify = workflow(readFileSync(".github/workflows/verify.yml", "utf8"));
   const deploy = workflow(readFileSync(".github/workflows/deploy.yml", "utf8"));
-  assert.equal(
-    verify.jobs.verify.name,
-    "${{ inputs.environment == 'production' && 'Verify production' || 'Verify' }}",
-  );
-  assert.equal(
-    deploy.jobs.deploy.name,
-    "${{ inputs.environment == 'production' && 'Deploy production' || 'Deploy dev' }}",
-  );
+  assert.equal(verify.jobs.verify.name, "Tests and build");
+  assert.equal(deploy.jobs.deploy.name, "Publish tested artifact");
 });
 
 test("workflow comments stay in a short header, including generated callers", () => {
@@ -162,10 +219,12 @@ test("workflow comments stay in a short header, including generated callers", ()
     ...readdirSync(".github/workflows").map(
       (name) => `.github/workflows/${name}`,
     ),
-    "templates/web/ci.yml",
-    "templates/web/deploy-production.yml",
-    "templates/worker/ci.yml",
-    "templates/worker/deploy-production.yml",
+    "templates/web/verify-pr.yml",
+    "templates/web/verify-and-deploy-dev.yml",
+    "templates/web/verify-and-deploy-prod.yml",
+    "templates/worker/verify-pr.yml",
+    "templates/worker/verify-and-deploy-dev.yml",
+    "templates/worker/verify-and-deploy-prod.yml",
     "templates/weekly-vuln-audit.yml",
   ]) {
     const lines = readFileSync(path, "utf8").split(/\r?\n/);
@@ -182,11 +241,11 @@ test("workflow comments stay in a short header, including generated callers", ()
   fixture("web", (root) => {
     render(root);
     const lines = readFileSync(
-      join(root, ".github/workflows/ci.yml"),
+      join(root, ".github/workflows/verify-pr.yml"),
       "utf8",
     ).split(/\r?\n/);
-    assert.ok(lines[0].startsWith("# Verifies PRs"));
-    assert.ok(lines[1].startsWith("# Calls the shared"));
+    assert.ok(lines[0].startsWith("# Verifies pull requests"));
+    assert.ok(lines[1].startsWith("# The standalone Verify"));
     assert.ok(lines.slice(2).every((line) => !/^\s*#/.test(line)));
   });
 });
@@ -214,9 +273,12 @@ test("consumer checks reject floating references, wrong targets, missing depende
     (value) => {
       value.jobs.deploy_dev.secrets = "inherit";
     },
+    (value) => {
+      value.on.pull_request = null;
+    },
   ])
     fixture("web", (root) => {
-      const path = join(root, ".github/workflows/ci.yml");
+      const path = join(root, ".github/workflows/verify-and-deploy-dev.yml");
       const value = parse(readFileSync(path, "utf8"));
       mutate(value);
       writeFileSync(path, stringify(value));
@@ -240,7 +302,7 @@ test("production cannot acquire an automatic trigger or bypass verification", ()
     },
   ])
     fixture("worker", (root) => {
-      const path = join(root, ".github/workflows/deploy-production.yml");
+      const path = join(root, ".github/workflows/verify-and-deploy-prod.yml");
       const value = parse(readFileSync(path, "utf8"));
       mutate(value);
       writeFileSync(path, stringify(value));
@@ -415,6 +477,7 @@ test("dev evidence requires trusted successful CI, a retained artifact and exact
     conclusion: "success",
     event: "push",
     head_branch: "main",
+    path: ".github/workflows/verify-and-deploy-dev.yml",
     head_repository: { full_name: env.GITHUB_REPOSITORY },
     html_url: "https://github.com/owner/application/actions/runs/10",
   };
@@ -427,10 +490,19 @@ test("dev evidence requires trusted successful CI, a retained artifact and exact
     "wrong-sha",
     "wrong-run",
     "failed-smoke",
+    "legacy-ci",
+    "manual-dev",
+    "pr-workflow",
+    "unknown-workflow",
   ]) {
     const current = structuredClone(run);
     const evidence = structuredClone(record);
     if (scenario === "pr") current.event = "pull_request";
+    if (scenario === "legacy-ci") current.path = ".github/workflows/ci.yml";
+    if (scenario === "manual-dev") current.event = "workflow_dispatch";
+    if (scenario === "pr-workflow")
+      current.path = ".github/workflows/verify-pr.yml";
+    if (scenario === "unknown-workflow") delete current.path;
     if (scenario === "failed") current.conclusion = "failure";
     if (scenario === "fork")
       current.head_repository.full_name = "attacker/application";
@@ -446,7 +518,8 @@ test("dev evidence requires trusted successful CI, a retained artifact and exact
           }
         : { workflow_runs: [current] };
     const result = () => devEvidence(env, read, async () => evidence);
-    if (scenario === "success") assert.deepEqual(await result(), record);
+    if (["success", "legacy-ci", "manual-dev"].includes(scenario))
+      assert.deepEqual(await result(), record);
     else await assert.rejects(result);
   }
 });
@@ -462,4 +535,42 @@ test("delivery records reject missing digests, wrong environments and fabricated
     { previousDeploymentId: undefined },
   ])
     assert.throws(() => deliveryRecord({ ...record, ...patch }, sha, "dev"));
+});
+
+test("dev evidence searches later pages but stops after 500 successful main runs", async () => {
+  const run = {
+    id: 10,
+    conclusion: "success",
+    event: "push",
+    head_branch: "main",
+    path: ".github/workflows/verify-and-deploy-dev.yml",
+    head_repository: { full_name: env.GITHUB_REPOSITORY },
+  };
+  for (const found of [true, false]) {
+    const pages = [];
+    const read = async (path) => {
+      if (path.includes("/artifacts?"))
+        return { artifacts: [{ name: "delivery-record-dev", expired: false }] };
+      assert.ok(
+        path.startsWith(
+          "/actions/runs?branch=main&status=success&per_page=100&page=",
+        ),
+      );
+      const page = Number(
+        new URL(`https://api.github.com${path}`).searchParams.get("page"),
+      );
+      pages.push(page);
+      return {
+        workflow_runs: Array.from({ length: 100 }, () => ({
+          ...run,
+          path:
+            found && page === 3 ? run.path : ".github/workflows/verify-pr.yml",
+        })),
+      };
+    };
+    const result = devEvidence(env, read, async () => record);
+    if (found) assert.deepEqual(await result, record);
+    else await assert.rejects(result, /No retained successful dev delivery/);
+    assert.deepEqual(pages, found ? [1, 2, 3] : [1, 2, 3, 4, 5]);
+  }
 });

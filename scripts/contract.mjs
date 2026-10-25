@@ -88,26 +88,59 @@ export function consumer(root) {
     JSON.parse(readFileSync(join(root, ".github/ci-cd.json"), "utf8")),
   );
   const workflows = join(root, ".github/workflows");
-  for (const name of readdirSync(workflows).filter((name) =>
-    /\.ya?ml$/.test(name),
-  )) {
+  const files = readdirSync(workflows);
+  for (const name of ["ci.yml", "deploy-production.yml"])
+    assert.ok(!files.includes(name), `Remove retired entry point: ${name}`);
+  for (const name of files.filter((name) => /\.ya?ml$/.test(name))) {
     assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*\.yml$/);
     workflow(readFileSync(join(workflows, name), "utf8"));
   }
-  const ci = workflow(readFileSync(join(workflows, "ci.yml"), "utf8"));
-  const production = workflow(
-    readFileSync(join(workflows, "deploy-production.yml"), "utf8"),
+  const pr = workflow(readFileSync(join(workflows, "verify-pr.yml"), "utf8"));
+  const ci = workflow(
+    readFileSync(join(workflows, "verify-and-deploy-dev.yml"), "utf8"),
   );
-  assert.equal(ci.name, "CI");
-  assert.equal(production.name, "Deploy production");
+  const production = workflow(
+    readFileSync(join(workflows, "verify-and-deploy-prod.yml"), "utf8"),
+  );
+  assert.equal(pr.name, "Verify PR");
+  assert.deepEqual(Object.keys(pr.on), ["pull_request"]);
+  assert.equal(pr.on.pull_request, null);
+  assert.deepEqual(pr.permissions, { contents: "read", actions: "read" });
+  assert.ok(
+    !JSON.stringify(pr).includes("secrets"),
+    "PR verification cannot receive deployment secrets",
+  );
+  for (const [id, job] of Object.entries(pr.jobs)) {
+    assert.ok(
+      !job.environment,
+      "PR jobs cannot enter a deployment environment",
+    );
+    if (id !== "verify" && id !== "verify_result") {
+      assert.ok(config.legacyChecks.includes(job.name));
+      assert.deepEqual(job, {
+        ...pr.jobs.verify_result,
+        name: job.name,
+        steps: pr.jobs.verify_result.steps.map((step) => ({
+          run: step.run,
+          env: step.env,
+        })),
+      });
+    }
+  }
+  assert.equal(pr.jobs.verify.name, "PR checks");
+  assert.equal(pr.jobs.verify.with.source_sha, "${{ github.sha }}");
+  assert.equal(ci.name, "Verify and deploy to dev");
+  assert.equal(production.name, "Verify and deploy to prod");
   assert.deepEqual(ci.on.push.branches, ["main"]);
-  assert.ok(Object.hasOwn(ci.on, "pull_request"));
+  assert.equal(ci.on.workflow_dispatch.inputs.sha.required, true);
+  assert.equal(ci.on.workflow_dispatch.inputs.sha.type, "string");
   assert.deepEqual(Object.keys(production.on), ["workflow_dispatch"]);
   assert.equal(production.on.workflow_dispatch.inputs.sha.required, true);
   assert.equal(production.on.workflow_dispatch.inputs.sha.type, "string");
   const reference = (file) =>
     `${REPOSITORY}/.github/workflows/${file}-${config.profile}.yml@${config.automationSha}`;
   for (const [job, file, target] of [
+    [pr.jobs.verify, "verify", "dev"],
     [ci.jobs.verify, "verify", "dev"],
     [ci.jobs.deploy_dev, "deploy", "dev"],
     [production.jobs.verify_release, "verify", "production"],
@@ -120,27 +153,24 @@ export function consumer(root) {
     assert.notEqual(job.secrets, "inherit", "Pass only named provider secrets");
   }
   assert.equal(ci.jobs.deploy_dev.needs, "verify");
-  assert.equal(ci.jobs.verify.name, "Verify");
-  assert.equal(ci.jobs.deploy_dev.name, "Deploy dev");
-  assert.equal(production.jobs.verify_release.name, "Verify production");
-  assert.equal(production.jobs.deploy_production.name, "Deploy production");
-  assert.deepEqual(ci.jobs.verify_result, {
+  assert.equal(ci.jobs.verify.name, "Dev checks");
+  assert.equal(ci.jobs.deploy_dev.name, "Dev delivery");
+  assert.equal(production.jobs.verify_release.name, "Production checks");
+  assert.equal(production.jobs.deploy_production.name, "Production delivery");
+  assert.deepEqual(pr.jobs.verify_result, {
     name: "Verify",
     needs: "verify",
     if: "always()",
     "runs-on": RUNNER,
     steps: [
       {
+        name: "Require successful PR checks",
         run: 'test "$VERIFY_RESULT" = success',
         env: { VERIFY_RESULT: "${{ needs.verify.result }}" },
       },
     ],
   });
-  assert.deepEqual(Object.keys(ci.on).sort(), [
-    "pull_request",
-    "push",
-    "workflow_dispatch",
-  ]);
+  assert.deepEqual(Object.keys(ci.on).sort(), ["push", "workflow_dispatch"]);
   assert.equal(
     ci.jobs.deploy_dev.if,
     "github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')",
@@ -152,7 +182,7 @@ export function consumer(root) {
   );
   for (const name of config.legacyChecks) {
     assert.ok(
-      Object.values(ci.jobs).some(
+      Object.values(pr.jobs).some(
         (job) =>
           job.name === name && job.needs === "verify" && job.if === "always()",
       ),

@@ -29,6 +29,7 @@ permissions:
   actions: read
 jobs:
   deploy:
+    name: Vercel deployment
     uses: ./.github/workflows/deploy.yml
     with:
       automation_sha: ${{ inputs.automation_sha }}

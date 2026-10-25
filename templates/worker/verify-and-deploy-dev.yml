@@ -1,8 +1,6 @@
-# Verifies PRs and exact main revisions; successful main checks deliver to dev.
-# Calls the shared CI/CD workflows; production uses deploy-production.yml.
-name: CI
+# Verifies exact main revisions, then delivers the tested artifact to dev.
+name: Verify and deploy to dev
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -16,7 +14,7 @@ permissions:
   actions: read
 jobs:
   verify:
-    name: Verify
+    name: Dev checks
     uses: benhammoush/ci-cd-workflows/.github/workflows/verify-worker.yml@__AUTOMATION_SHA__
     with:
       automation_sha: "__AUTOMATION_SHA__"
@@ -24,7 +22,7 @@ jobs:
       environment: dev
       node_version: "__NODE_VERSION__"
   deploy_dev:
-    name: Deploy dev
+    name: Dev delivery
     needs: verify
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     uses: benhammoush/ci-cd-workflows/.github/workflows/deploy-worker.yml@__AUTOMATION_SHA__
@@ -36,12 +34,3 @@ jobs:
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       IRIS_REFRESH_TOKEN: ${{ secrets.IRIS_REFRESH_TOKEN }}
-  verify_result:
-    name: Verify
-    needs: verify
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - run: test "$VERIFY_RESULT" = success
-        env:
-          VERIFY_RESULT: ${{ needs.verify.result }}

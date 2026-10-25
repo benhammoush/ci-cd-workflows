@@ -21,6 +21,7 @@ permissions:
   actions: read
 jobs:
   verify:
+    name: Web validation
     uses: ./.github/workflows/verify.yml
     with:
       profile: web

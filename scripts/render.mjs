@@ -1,6 +1,6 @@
 /** Render versioned callers without altering application source or provider resources. @file */
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse, stringify } from "yaml";
@@ -13,7 +13,16 @@ export function render(root, check = false) {
   );
   const directory = join(root, ".github/workflows");
   mkdirSync(directory, { recursive: true });
-  for (const name of ["ci.yml", "deploy-production.yml"]) {
+  for (const name of ["ci.yml", "deploy-production.yml"])
+    assert.ok(
+      !existsSync(join(directory, name)),
+      `Remove retired entry point before rendering: ${name}`,
+    );
+  for (const name of [
+    "verify-pr.yml",
+    "verify-and-deploy-dev.yml",
+    "verify-and-deploy-prod.yml",
+  ]) {
     const text = readFileSync(
       new URL(`../templates/${config.profile}/${name}`, import.meta.url),
       "utf8",
@@ -21,8 +30,9 @@ export function render(root, check = false) {
       .replaceAll("__AUTOMATION_SHA__", config.automationSha)
       .replaceAll("__NODE_VERSION__", config.nodeVersion);
     const value = parse(text);
-    if (name === "ci.yml") {
-      for (const [index, display] of config.legacyChecks.entries())
+    if (name === "verify-pr.yml") {
+      for (const [index, display] of config.legacyChecks.entries()) {
+        if (display === "Verify") continue;
         value.jobs[`legacy_${index}`] = {
           name: display,
           needs: "verify",
@@ -35,21 +45,26 @@ export function render(root, check = false) {
             },
           ],
         };
-      if (config.manualRefresh)
-        value.on.workflow_dispatch.inputs.refresh_dev = {
-          description: "Explicitly refresh shared dev data after delivery",
-          type: "boolean",
-          default: false,
-        };
+      }
     }
-    if (config.lockScope)
+    if (name === "verify-and-deploy-dev.yml" && config.manualRefresh)
+      value.on.workflow_dispatch.inputs.refresh_dev = {
+        description: "Explicitly refresh shared dev data after delivery",
+        type: "boolean",
+        default: false,
+      };
+    if (config.lockScope && name !== "verify-pr.yml")
       value.jobs[
-        name === "ci.yml" ? "deploy_dev" : "deploy_production"
+        name === "verify-and-deploy-dev.yml"
+          ? "deploy_dev"
+          : "deploy_production"
       ].with.lock_scope = config.lockScope;
     const header =
-      name === "ci.yml"
-        ? "# Verifies PRs and exact main revisions; successful main checks deliver to dev.\n# Calls the shared CI/CD workflows; production uses deploy-production.yml.\n"
-        : "# Manually verifies and releases an exact dev-accepted source revision to production.\n# Calls shared CI/CD workflows with native environment approval.\n";
+      name === "verify-pr.yml"
+        ? "# Verifies pull requests without deployment jobs or credentials.\n# The standalone Verify result preserves the existing required-check context.\n"
+        : name === "verify-and-deploy-dev.yml"
+          ? "# Verifies exact main revisions, then delivers the tested artifact to dev.\n"
+          : "# Manually verifies and releases an exact dev-accepted source revision to production.\n# Calls shared CI/CD workflows with native environment approval.\n";
     const result = header + stringify(value, { lineWidth: 0 });
     const target = join(directory, name);
     if (check)

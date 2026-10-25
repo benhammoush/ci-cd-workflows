@@ -33,7 +33,7 @@ permissions:
   actions: read
 jobs:
   deploy:
-    name: ${{ inputs.environment == 'production' && 'Deploy production' || 'Deploy dev' }}
+    name: Publish tested artifact
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
