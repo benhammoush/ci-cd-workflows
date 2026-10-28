@@ -1,229 +1,219 @@
-# Release contract
+# CI/CD integration contract
 
-Automation 3.0 removes production deployment opt-ins, an intentional breaking behavior
-change from 2.x; dev remains automatic. Consumer configuration, artifacts and records retain schema
-version 1. Adopt only a verified published immutable SHA; local changes do not
-update consumers or authorize deployment.
+Shared verification and controlled delivery for web frontends and Cloudflare
+Worker APIs. Applications own their tests, product behavior and provider adapters;
+this tooling owns artifact integrity, credential separation and release guards.
 
-Automation 4.0 standardizes job/check names and adds the independently callable
-weekly vulnerability audit. Check names are a breaking public API change; consumer
-configuration remains schema version 1. Native protection migration requires
-separate owner approval and readback; local source edits never change protections.
+## Repository interactions
 
-Automation 5.0 splits PR verification from main-to-dev delivery and renames the
-production entry point. These filenames and nested job labels are breaking public
-API changes. Adopt the shared revision and all three consumer callers together;
-v4 pins cannot validate the new layout. Artifact/configuration schemas, deployment
-behavior and native production approval remain unchanged.
-Remove the retired `ci.yml` and `deploy-production.yml` callers before rendering
-the new templates. Rendering and conformance fail rather than leave competing
-entry points that could deliver the same revision twice.
+- **`ci-cd-workflows` — shared foundation.** Supplies the reusable verification,
+  delivery and audit workflows, starter templates, configuration validation and
+  artifact/release guards. Application repositories call a published, full-SHA-pinned
+  revision; changes here do not automatically update their pins. The foundation's
+  own CI tests the shared tooling, not the hosted applications.
 
-## Ownership and adoption
+- **[`iris-frontend`](https://github.com/benhammoush/iris-frontend) — dashboard.**
+  Calls the web profile for quality/build, browser checks and Vercel delivery.
+  Its integration checks also check out an explicitly pinned `iris-backend`
+  revision and run the frontend/backend checks locally, without deploying that
+  backend. Hosted builds select the matching dev or production API origin.
+  [Integration configuration](https://github.com/benhammoush/iris-frontend/blob/main/.github/ci-cd.json).
 
-There are two profiles: web frontends and Worker backends. Applications retain
-their meaningful tests and provider-specific adapters. Use the matching starter
-files in `templates/`, replacing the automation SHA with an independently
-reviewed, published full commit SHA and the Node version with the application's
-supported major. Never use a branch or mutable tag in a consumer reference.
-Consumer `.github/ci-cd.json` declares schema version 1, profile, Node major,
-automation SHA, integration requirements, previous required-check display names,
+- **[`iris-backend`](https://github.com/benhammoush/iris-backend) — market API.**
+  Calls the Worker profile for quality/build and Cloudflare delivery. Its adapter
+  passes `wrangler.toml` through the shared configuration allowlist before deploying
+  the tested Worker bundle. It owns its cache bindings, provider integration and
+  explicit refresh behavior. Delivery is independent of frontend delivery.
+  [Integration configuration](https://github.com/benhammoush/iris-backend/blob/main/.github/ci-cd.json).
+
+- **[`crypto_gateway_frontend`](https://github.com/benhammoush/crypto_gateway_frontend) — checkout UI.**
+  Calls the web profile for quality/build, browser checks and Vercel delivery.
+  Builds select the matching dev or production gateway API. Unlike Iris, its
+  shared configuration does not request a pinned-backend integration checkout;
+  the application owns its API compatibility tests and deployment adapter.
+  [Integration configuration](https://github.com/benhammoush/crypto_gateway_frontend/blob/main/.github/ci-cd.json).
+
+- **[`crypto_gateway_backend`](https://github.com/benhammoush/crypto_gateway_backend) — payment API.**
+  Calls the Worker profile for quality/build and Cloudflare delivery. Its own
+  adapter validates Worker configuration, isolated D1 selection and schema
+  attestation. The frontend and backend are delivered independently; shared CI
+  does not perform payment acceptance or migrate the database for them.
+  [Integration configuration](https://github.com/benhammoush/crypto_gateway_backend/blob/main/.github/ci-cd.json).
+
+- **[`dripperz`](https://github.com/benhammoush/dripperz) — collection site.**
+  Calls the web profile for quality/build, browser checks and Vercel delivery
+  to separate dev and production projects. No paired Worker checkout is declared.
+  [Integration configuration](https://github.com/benhammoush/dripperz/blob/main/.github/ci-cd.json).
+
+- **[`portfolio`](https://github.com/benhammoush/portfolio) — portfolio site.**
+  Calls the web profile for quality/build, browser checks and Vercel delivery.
+  Its adapter owns target-project validation; its declared lock scope serializes
+  delivery across both environments. No paired Worker checkout is declared.
+  [Integration configuration](https://github.com/benhammoush/portfolio/blob/main/.github/ci-cd.json).
+
+All six application repositories use the shared dependency audit. Each retains
+its own tests, environment settings, credentials and trusted deployment adapter.
+The linked configurations own the selected revisions and declared inputs; this
+list describes the connections, not live deployment or acceptance status.
+
+## Capabilities
+
+- **Pull-request verification:** tests the PR merge revision without deployment
+  credentials, a target environment or deployment side effects.
+- **Dev delivery:** verifies an exact main revision and automatically deploys its
+  tested artifact. A main-only manual request can revalidate a merged revision
+  for dev recovery. Failed, cancelled or PR checks cannot deploy.
+- **Production delivery:** manual and main-only, requiring a full merged SHA,
+  successful same-repository dev-delivery evidence, production-configured checks
+  and native environment approval. Successful deployment is not user acceptance.
+- **Dependency audits:** weekly and manually requested, main-only and read-only,
+  without environment or deployment secrets. Audits install locked dependencies
+  without lifecycle scripts and check both full and production-only dependency
+  trees. Any advisory severity or registry/install failure fails the audit; the
+  production report still runs if the full audit finds vulnerabilities. No fixes,
+  upgrades or deployments are performed. Results live in Actions logs, with
+  notifications controlled by GitHub settings.
+
+Delivery cannot be disabled through `DEPLOY_ENABLED` or `DELIVERY_ENABLED` flags.
+Missing credentials or configuration fail rather than produce a successful no-op.
+Production stays on hold by not requesting it; native approval is a separate gate.
+Production reruns and automatic rollback are not supported. Inspect provider state
+before a fresh approved request after an uncertain or failed mutation.
+
+## Application interface
+
+Use the web or Worker starters in `templates/`, pinned to an independently reviewed,
+published full commit SHA. Branches and mutable tags are not supported references.
+All shared references and `automationSha` must agree. Local edits do not update
+consumers, enable resources or authorize deployment.
+
+`.github/ci-cd.json` uses schema version 1 and declares the profile, supported Node
+major, automation SHA, integration requirements, compatibility check names,
 allowed nonsecret deployment variables and public dev/production build inputs.
 
-Required package scripts are `ci:quality`, `ci:browser` for web, and
-`ci:integration` where declared. Quality includes lint/documentation, formatting,
-types/version alignment, dependency checks, unit/integration tests and the final
-production build. Web browser checks exercise the built output in Chromium,
-Firefox and WebKit; specialized GPU/integration suites can remain focused.
-Optional `ci:prepare` only packages tested output, including Worker dry-run
-bundles; it does not deploy. Scripts existing in a package are not proof that
-critical flows, accessibility, authorization or failure states are tested.
+Applications provide:
 
-The fixed trusted-main `scripts/ci-deploy.mjs` consumes `dist` and `ci-build.json`
-from verification. It validates target configuration and production dispatch guards, uses only
-the selected target credential, records prior immutable provider identity before
-mutation, deploys without rebuilding tested bytes, and checks provider identity
-plus bounded read-only post-deployment verification. It writes `delivery-record.json` even on
-uncertain mutation or post-deployment verification failure. No application source from a historical
-candidate supplies a privileged adapter. Deployment credentials are unavailable
-to verification jobs; provider tokens are step-scoped after native approval.
+- `ci:quality`: lint/documentation, formatting, types/version alignment, dependency
+  checks, unit/integration tests and the production build.
+- `ci:browser` for web: built-output coverage in Chromium, Firefox and WebKit;
+  specialized GPU/integration suites may remain focused.
+- `ci:integration` where declared.
+- Optional `ci:prepare`: packaging only, including Worker dry-run bundles.
+- `scripts/ci-deploy.mjs`: a trusted-main provider adapter consuming verified
+  `dist` and `ci-build.json`, never privileged code from a historical candidate.
 
-Web transport uses the file and deployment APIs, not a dynamically resolved
-Vercel CLI. It sends only a fresh generated `.vercel/output` tree, including
-function `.vc-config.json` files. This follows the official client's prebuilt
-file-list and version-2 deployment payload; upload digest/size headers match its
-uploader. File uploads and deployment creation are never retried, and a created
-deployment ID is recorded before readiness/alias reads. See Vercel's
-[Build Output API](https://vercel.com/docs/build-output-api) and
+Verification uses `ubuntu-24.04`; Node and locked Playwright versions remain
+application-owned. Browser preparation uses the official HTTPS Ubuntu archive,
+not Azure mirrors, including mirror-file source layouts. Signature and suite
+checks remain enabled. APT retries/timeouts are bounded; installation has a
+ten-minute limit within the forty-minute verification budget. Installation failure
+never skips browser coverage or permits deployment. Shared CI checks browser-host
+setup across all three engines; Worker profiles do not install browsers.
+
+## Delivery guarantees
+
+- Verification has no provider deployment credentials. Delivery uses only the
+  selected environment's credential; provider tokens are step-scoped, with native
+  approval before production access.
+- Deploy tested bytes without rebuilding during privileged delivery. Different
+  dev/production build inputs require separately verified configured artifacts.
+- Serialize deployment per environment with a non-cancelling lock; cancelling
+  whole-caller concurrency must not interrupt deployment.
+- Record the prior immutable provider identity before mutation. Verify the new
+  provider identity and perform bounded read-only post-deployment checks.
+- Write `delivery-record.json` even when mutation or verification is uncertain.
+  Never infer recovery readiness from missing prior identity.
+- Look up dev evidence within the newest 500 successful main runs. Only
+  `verify-and-deploy-dev.yml` and historical `ci.yml` delivery records qualify,
+  under the same repository, event, artifact and exact-source checks. PR checks,
+  audits and production runs do not qualify. Missing, expired or mismatched
+  evidence fails closed; revalidate the candidate in dev.
+- Evidence reads use GitHub's built-in token, not another PAT or a dev provider
+  credential in production.
+
+Web delivery uploads only a fresh generated `.vercel/output` tree, including
+function `.vc-config.json` files, through Vercel's file/deployment APIs. It uses
+the prebuilt file-list and version-2 payload with matching digest/size headers;
+no dynamically resolved Vercel CLI is executed. Uploads and deployment creation
+are never retried. Record the created deployment ID before readiness/alias reads.
+See the [Build Output API](https://vercel.com/docs/build-output-api) and
 [client implementation](https://github.com/vercel/vercel/tree/main/packages/client/src).
-Worker TOML is parsed into an allowlisted declarative JSON configuration; no
-historical custom-build hook is passed to privileged Wrangler.
 
-## Triggers and release evidence
+## Worker configuration
 
-Web verification prepares Ubuntu 24.04 browser dependencies using the official
-HTTPS Ubuntu archive instead of the runner's Azure mirror, including hosted
-runner configurations that resolve sources through `/etc/apt/apt-mirrors.txt`.
-Preparation verifies that Azure is absent from all supported source layouts. Package suites,
-signature verification and all three browser engines are unchanged. APT retries
-and socket timeouts are bounded, with a separate ten-minute installation limit
-inside the unchanged forty-minute verification budget. Installation failure fails
-the job; it never skips a browser or resumes delivery without verification.
+Worker TOML is reduced to allowlisted declarative JSON before privileged Wrangler
+execution. Custom build hooks and unknown settings are rejected, not forwarded.
+The complete list of supported environment-scoped bindings is:
 
-Foundation CI validates the host setup by installing and rendering a page with
-Chromium, Firefox and WebKit on Ubuntu 24.04. Consumers still use their own locked
-Playwright version and application-owned browser suites. All six consumers adopt
-the reviewed patch through immutable SHA updates, including Worker profiles whose
-browser-installation step remains disabled.
+- **Variables (`vars`):** required object of string values for nonsecret application
+  settings. Secrets are configured separately with the provider, not written here.
+- **KV storage (`kv_namespaces`):** required array, which may be empty. Each entry
+  contains exactly `binding` (uppercase letters/underscores) and `id` (32 lowercase
+  hexadecimal characters).
+- **D1 databases (`d1_databases`):** optional array. Each entry contains exactly
+  `binding`, `database_name` and an explicit nonzero
+  UUID `database_id`. Missing IDs cannot trigger automatic provisioning.
+- **Rate limiting (`ratelimits`):** optional array. Each entry contains exactly
+  `name`, a positive-integer string
+  `namespace_id`, and `simple` containing a positive safe-integer `limit` and a
+  `period` of 10 or 60 seconds.
 
-`Verify PR` runs on PR creation, updates and reopening. It only verifies the PR
-merge revision; it has no deployment job, target environment or provider secrets.
-`Verify and deploy to dev` runs on main pushes. Only a successful main push's exact
-merge SHA can automatically deliver dev. A main-only manual dev-workflow dispatch can
-revalidate/redeploy an exact merged SHA for dev recovery. Failed, cancelled or PR
-checks cannot deploy. Deploy jobs have their own non-cancelling environment lock;
-do not put the whole caller workflow under cancelling concurrency.
+Bindings come only from the selected `env.dev` or `env.production` section, not
+top-level defaults. D1 and limiter names use uppercase letters, digits and
+underscores, cannot start with a digit, and must be unique across both new arrays,
+KV bindings and variables. D1 names/IDs and limiter names/IDs reject surrounding
+whitespace. Malformed values and extra binding fields fail closed. Other binding
+types, preview bindings, migration options and remote-development settings are
+unsupported. Configurations without D1 or rate-limit arrays remain unchanged.
 
-Delivery has no boolean opt-in: absent or false `DEPLOY_ENABLED` and legacy
-`DELIVERY_ENABLED` values cannot skip it. Missing configuration or credentials
-fails delivery rather than reporting a successful disabled no-op. Production
-manual dispatch, dev evidence and native approval remain unchanged. Not dispatching
-the production workflow is the normal hold; native approval remains a separate gate.
-Do not remove live flags until the verified immutable 3.0 release is adopted by
-each consumer. Update project adapters and variable allowlists with that pin;
-older releases still require their production flags. No production execution is
-authorized by adopting this change.
+The other allowed settings are configuration, not resource bindings:
 
-`Verify and deploy to prod` is a separate manual, main-only entry point. Require a full
-merged SHA, retained successful same-repository dev delivery for that SHA,
-target-configured verification, and native production approval. The owner checks
-current dev acceptance, compatibility/configuration and eligible recovery before
-approval. A selected SHA and successful post-deployment verification never imply human acceptance.
-Production reruns are rejected; inspect provider state and start a fresh approved
-dispatch after any uncertain or failed mutation. There is no automatic rollback.
+- **Selected environment:** `name`, `workers_dev` (must be `true`), `preview_urls`
+  (must be `false`) and optional `triggers` containing only `crons`.
+- **Top level:** `compatibility_date`, optional `compatibility_flags` and
+  `observability` supply runtime/logging settings. `name`, `main`, `vars`,
+  `kv_namespaces` and `env` are also accepted input keys, but the filter uses the
+  selected environment's name/bindings and does not forward `main`; the trusted
+  adapter supplies the tested bundle entry point.
 
-Evidence lookup is deliberately bounded to the newest 500 successful main runs.
-Only `verify-and-deploy-dev.yml` and the historical `ci.yml` may supply dev
-delivery evidence; PR verification, audits and production runs cannot. Historical
-CI records remain eligible only under the same event, repository, artifact and
-exact-source checks, so renaming does not discard retained release evidence.
-Expired/missing/mismatched artifacts fail closed; revalidate the candidate in dev
-instead of choosing another SHA or claiming an old deployment is still current.
-GitHub Actions read access uses its built-in token, never another PAT or a dev
-provider credential in production. Frontend environment substitutions may require
-different dev/production bytes: verify each configured build, then deploy its exact
-artifact. Retain both artifact and configuration identities.
+This path neither creates resources nor applies migrations. Resource ownership,
+environment isolation and rate-limit namespace isolation require provider
+verification. Rate limits are approximate per Cloudflare location, not global quotas.
 
-## Naming and compatibility
+## Stable interfaces and compatibility
 
-### Canonical job names and required-check migration
+- Entry points: `verify-pr.yml` / `Verify PR`, `verify-and-deploy-dev.yml` /
+  `Verify and deploy to dev`, `verify-and-deploy-prod.yml` / `Verify and deploy to prod`,
+  and `weekly-vuln-audit.yml` / `Weekly vulnerability audit`. Audits run on staggered
+  Monday UTC schedules plus a manual trigger.
+- Caller jobs: `PR checks`, `Dev checks`, `Dev delivery`, `Production checks` and
+  `Production delivery`. Reusable layers name validation, tests/build and provider
+  delivery. The standalone PR result `Verify` (`verify_result`) always runs and
+  passes only after all required checks succeed; it does not repeat the tests.
+  Deployment jobs are not PR merge requirements.
+- Environments: `dev` and `production`; variables/secrets: UPPER_SNAKE_CASE.
+  Files use kebab-case; job and step IDs use snake_case.
+- Artifacts: `build-<full-source-sha>-<environment>` and
+  `delivery-record-<environment>`.
+- Delivery records: `delivery-record.json`, schema version 1, with `sourceSha`,
+  `environment`, `artifactDigest`, `configurationDigest`, `workflowRunId`,
+  `deploymentId`, `previousDeploymentId` and `status`. Verified delivery status is
+  exactly `smoke-verified-not-user-accepted`. A null predecessor means no known
+  recovery identity, not proven recovery readiness. Provider-specific fields
+  retain additional evidence.
 
-Application callers use `PR checks`, `Dev checks`, `Dev delivery`,
-`Production checks` and `Production delivery`; weekly audits remain unchanged.
-Reusable layers describe the work: `Web validation` or `Worker validation`,
-then `Tests and build`; `Vercel deployment` or `Cloudflare deployment`, then
-`Publish tested artifact`. GitHub displays these as nested paths rather than
-repeating Verify at each level. A standalone PR `verify_result` job named exactly `Verify`
-provides the stable required-check context: it always runs after verification and
-passes only when verification succeeded, including its integration/browser checks.
-It does not run the tests twice. Deployment and production jobs are not PR merge
-requirements.
+Public inputs, check names, artifacts and record schemas follow semantic
+versioning. Consumers adopt reviewed immutable revisions through PRs, preserving
+explicit `legacyChecks` aliases until any required-check migration is approved
+and read back. Retired entry points must be removed before rendering replacements;
+competing delivery callers fail conformance. `.yml.pending` starters are inactive:
+replace the SHA placeholder with a verified published revision before activation.
 
-The prepared consumers set `legacyChecks: []` and replace old result bridges with
-`verify_result`. The configuration field remains supported for consumers that
-still need compatibility aliases; the renderer must not silently remove those.
-All six native protections required app-bound `Verify` and `CodeRabbit` when read
-on October 25, 2026. Moving the standalone result to `verify-pr.yml` preserves
-that context without changing protection. The older migration inventory below is
-historical (read October 23, 2026), not the current required-check configuration:
-
-| Repository              | Existing verification check names to replace |
-| ----------------------- | -------------------------------------------- |
-| iris-frontend           | `test-and-build`, `vertical`                 |
-| iris-backend            | `test`                                       |
-| crypto_gateway_frontend | `quality`, `browser`                         |
-| crypto_gateway_backend  | `quality`                                    |
-| Dripperz                | `Quality and build`, `Browser smoke`         |
-| portfolio               | `Foundation quality`                         |
-
-Do not merge these prepared naming changes under unchanged protections. For each
-repository, after separate publication/settings authorization:
-
-1. Publish and review the shared 5.0 workflow revision. Update the consumer's
-   `automationSha` and every reusable release reference to that same published
-   immutable SHA. Activate its pending audit caller at that SHA too.
-2. Publish the consumer PR and require successful checks on its exact current
-   head. Confirm that standalone `Verify` is reported by GitHub Actions
-   (app ID 15368), not just a nested job with a similar name. Check a failing or
-   skipped verification cannot produce a successful `Verify` result.
-3. Only if old requirements remain, with explicit owner approval replace those verification requirements
-   with app-bound `Verify`; retain strict mode and app-bound `CodeRabbit`
-   (app ID 347564). Preserve independent reviews, stale-review dismissal,
-   resolved conversations, administrator enforcement and all other protections.
-   Read back the resulting requirements before allowing the merge.
-4. Merge only after the new required checks and current-head approval pass.
-   The dev workflow can deploy dev as usual; this migration authorizes no production run.
-
-Do not temporarily disable protection or bypass a missing check. If a naming PR
-is abandoned after the settings switch, restore the old required contexts under
-fresh owner approval before merging unrelated PRs that do not emit `Verify`.
-No remote settings have been changed by preparing this rollout.
-
-### Weekly vulnerability audits
-
-Applications use `weekly-vuln-audit.yml` / `Weekly vulnerability audit`
-to call the shared `weekly-vuln-audit.yml` at a reviewed, published immutable
-SHA. The starter is `templates/weekly-vuln-audit.yml`; replace its SHA
-placeholder and use the application's supported Node version. Keep schedules on
-Monday UTC, staggered across consumers, plus a manual trigger. Execution is
-main-only, read-only and has no environment or deployment secrets.
-
-The audit installs locked dependencies without lifecycle scripts, then checks the
-full and production-only trees against the configured npm registry. Any advisory
-severity fails the run; registry/install errors also fail rather than certifying
-safety. The production report still runs if the full audit finds vulnerabilities.
-No automatic fixes, dependency upgrades, releases or deployments occur. Reports
-are in Actions logs; GitHub notification settings control delivery to maintainers.
-This supplements, rather than replaces, dependency checks in normal CI.
-
-Locally prepared consumer files ending in `.yml.pending` are intentionally inactive.
-Before publishing consumer changes, replace `PENDING_SHARED_WORKFLOW_SHA` with
-the reviewed published shared-workflow SHA and remove `.pending`. Verify that the
-workflow exists at that SHA. Do not merge the Iris audit deletions until their
-replacement callers are activated in the same consumer change.
-
-### Release naming
-
-- Files: lowercase kebab-case; jobs and step IDs: lower snake_case.
-- Entry points: `verify-pr.yml` / `Verify PR`,
-  `verify-and-deploy-dev.yml` / `Verify and deploy to dev`,
-  `verify-and-deploy-prod.yml` / `Verify and deploy to prod`.
-- Environments: exactly `dev` and `production`; variables/secrets: UPPER_SNAKE_CASE.
-- Artifacts: `build-<full-source-sha>-<environment>` and `delivery-record-<environment>`.
-- Record: `delivery-record.json`, schemaVersion 1, camelCase fields including
-  sourceSha, environment, artifactDigest, configurationDigest, workflowRunId,
-  deploymentId, previousDeploymentId and status. Completed post-deployment verification status is exactly
-  `smoke-verified-not-user-accepted`; a null predecessor explicitly means no known
-  prior restore identity, not proof of recovery readiness. Extra provider fields
-  retain project-specific evidence rather than discarding it.
-- Task branches: `<type>/<kebab-case-description>`; Conventional Commit titles.
-- Ubuntu runners: `ubuntu-24.04`. Node majors remain application-specific.
-
-Preserve prior required-check contexts through explicit compatibility jobs until
-native protection migration is approved and read back. Do not rename provider
-resources or existing repositories for appearance. Retain stricter existing
-mutation exclusion, transport/configuration guards and manual acceptance rules.
-
-Public inputs, check names, artifacts and record schemas are versioned API.
-Release intentional changes with semantic versions; consumers adopt reviewed SHAs
-through PRs. Conformance validates parsed YAML and structured data and includes
-negative tests. It cannot certify provider settings, token scopes, actual test
-quality or native GitHub approvals: separately read back main-only environments,
-required reviews/checks and disabled production admin bypass. Do not enable
-targets, create credentials, perform payment operations or deploy as a side effect
-of adoption. No application production release is authorized by this foundation.
-
-The shared workflow code and tests are checked locally and in its own CI. Live
-dev execution needs separately authorized application merges; native production
-approval and actual production delivery require separate authorization. No real
-device, minimum-browser, performance, legal or security certification is implied.
+Native protections require app-bound `Verify` (GitHub Actions, app ID 15368) and
+`CodeRabbit` (app ID 347564), independent reviews, stale-review dismissal, resolved
+conversations, strict checks and no administrator bypass. Never bypass a missing
+check or temporarily weaken protection for adoption. Abandoned check-name changes
+require separately approved restoration before merging incompatible callers.
+Preserve stronger application guards; do not rename provider resources as part of
+adoption. Task branches use `<type>/<kebab-case-description>` and Conventional
+Commit titles.
