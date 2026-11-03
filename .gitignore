@@ -1,3 +1,4 @@
 node_modules/
+/DEV.md
 test-results/
 .consumer-fixtures/
