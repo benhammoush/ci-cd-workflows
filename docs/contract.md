@@ -209,11 +209,18 @@ and read back. Retired entry points must be removed before rendering replacement
 competing delivery callers fail conformance. `.yml.pending` starters are inactive:
 replace the SHA placeholder with a verified published revision before activation.
 
-Native protections require app-bound `Verify` (GitHub Actions, app ID 15368) and
-`CodeRabbit` (app ID 347564), independent reviews, stale-review dismissal, resolved
-conversations, strict checks and no administrator bypass. Never bypass a missing
-check or temporarily weaken protection for adoption. Abandoned check-name changes
-require separately approved restoration before merging incompatible callers.
+Native protections require app-bound `Verify` (GitHub Actions, app ID 15368),
+resolved conversations, strict checks and no administrator bypass. Preserve
+stale-review dismissal, protected-branch deletion and force-push restrictions.
+Codex reviews are advisory: the owner reads the findings, decides what must be
+fixed and chooses whether to merge. Neither an AI check nor formal reviewer or
+last-push approval is required. A missing, failed or quota-limited review is not
+a clean review. The shared automation repository retains its app-bound `Quality`
+check rather than `Verify`. `thecult` is excluded from this review-policy migration;
+leave its existing policy, protections and app access unchanged.
+Never bypass a missing required CI check or temporarily weaken protection for
+adoption. Abandoned check-name changes require separately approved restoration
+before merging incompatible callers.
 Preserve stronger application guards; do not rename provider resources as part of
 adoption. Task branches use `<type>/<kebab-case-description>` and Conventional
 Commit titles.
