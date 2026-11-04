@@ -121,6 +121,11 @@ setup across all three engines; Worker profiles do not install browsers.
   whole-caller concurrency must not interrupt deployment.
 - Record the prior immutable provider identity before mutation. Verify the new
   provider identity and perform bounded read-only post-deployment checks.
+- For a first production Worker, only an HTTP 404 with Cloudflare's sole error
+  code 10007 confirms absence. Recheck absence immediately before creating it;
+  reject permission failures, malformed responses and changes in Worker existence.
+  Keep the predecessor null rather than inventing a rollback baseline. Missing
+  dev Workers and missing post-deployment Workers remain errors.
 - Write `delivery-record.json` even when mutation or verification is uncertain.
   Never infer recovery readiness from missing prior identity.
 - Look up dev evidence within the newest 500 successful main runs. Only
