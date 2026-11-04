@@ -316,3 +316,169 @@ test("Worker adapter deploys prebundled bytes once and binds active provider ver
       }
     });
 });
+
+test("first production Worker accepts only confirmed absence and rejects preflight drift or uncertain mutations", async () => {
+  for (const scenario of [
+    "production-missing",
+    "omitted-result",
+    "production-empty",
+    "dev-missing",
+    "forbidden",
+    "server-error",
+    "unknown-missing",
+    "mixed-errors",
+    "missing-errors",
+    "malformed",
+    "malformed-success",
+    "wrong-success",
+    "nonempty-result",
+    "string-code",
+    "appeared",
+    "disappeared",
+    "ambiguous",
+    "missing-after-mutation",
+  ]) {
+    await fixture(async () => {
+      const env = {
+        ...baseEnv,
+        CI_ENVIRONMENT: scenario === "dev-missing" ? "dev" : "production",
+        GITHUB_EVENT_NAME: "workflow_dispatch",
+      };
+      const build = JSON.parse(readFileSync("ci-build.json", "utf8"));
+      build.environment = env.CI_ENVIRONMENT;
+      writeFileSync("ci-build.json", JSON.stringify(build));
+      let mutations = 0;
+      let deploymentReads = 0;
+      let smokeChecks = 0;
+      const fetcher = async (input) => {
+        const url = new URL(input);
+        assert.equal(url.hostname, "api.cloudflare.com");
+        assert.ok(
+          url.pathname.startsWith(
+            `/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/app-production/`,
+          ),
+        );
+        if (url.pathname.endsWith("/versions/version-created")) {
+          return Response.json({
+            success: true,
+            result: {
+              annotations: {
+                "workers/tag": sha,
+                "workers/message": `ci-cd:10:${hash}`,
+              },
+            },
+          });
+        }
+        assert.ok(url.pathname.endsWith("/deployments"));
+        deploymentReads++;
+        if (mutations && scenario !== "missing-after-mutation") {
+          return Response.json({
+            success: true,
+            result: {
+              deployments: [
+                {
+                  id: "deployment-created",
+                  versions: [
+                    { version_id: "version-created", percentage: 100 },
+                  ],
+                },
+              ],
+            },
+          });
+        }
+        const empty =
+          scenario === "production-empty" ||
+          (scenario === "appeared" && deploymentReads === 2) ||
+          (scenario === "disappeared" && deploymentReads === 1);
+        if (empty)
+          return Response.json({ success: true, result: { deployments: [] } });
+        if (["malformed", "malformed-success"].includes(scenario))
+          return new Response("private-invalid-body", {
+            status: scenario === "malformed" ? 404 : 200,
+          });
+        return Response.json(
+          {
+            success: scenario === "wrong-success",
+            ...(scenario === "omitted-result"
+              ? {}
+              : { result: scenario === "nonempty-result" ? {} : null }),
+            errors:
+              scenario === "missing-errors"
+                ? []
+                : [
+                    {
+                      code:
+                        scenario === "unknown-missing"
+                          ? 10000
+                          : scenario === "string-code"
+                            ? "10007"
+                            : 10007,
+                      message: "private-provider-message",
+                    },
+                    ...(scenario === "mixed-errors" ? [{ code: 10000 }] : []),
+                  ],
+          },
+          {
+            status:
+              scenario === "forbidden"
+                ? 403
+                : scenario === "server-error"
+                  ? 500
+                  : 404,
+          },
+        );
+      };
+      const execute = () => {
+        mutations++;
+        const record = JSON.parse(readFileSync("delivery-record.json", "utf8"));
+        assert.equal(record.status, "mutation-requested");
+        assert.equal(record.previousDeploymentId, null);
+        assert.equal(record.previousProviderDeploymentId, null);
+        if (scenario === "ambiguous") throw new Error("Lost response");
+      };
+      const run = () =>
+        publishWorker(
+          env,
+          {
+            name: "app-production",
+            entry: "dist/index.js",
+            config: "wrangler.toml",
+            configuration: {},
+            smoke: async () => {
+              smokeChecks++;
+            },
+          },
+          fetcher,
+          execute,
+        );
+      if (
+        ["production-missing", "omitted-result", "production-empty"].includes(
+          scenario,
+        )
+      ) {
+        const record = await run();
+        assert.equal(record.status, "smoke-verified-not-user-accepted");
+        assert.equal(record.deploymentId, "version-created");
+        assert.equal(record.previousDeploymentId, null);
+        assert.equal(mutations, 1);
+        assert.equal(smokeChecks, 1);
+      } else {
+        await assert.rejects(run, (error) => {
+          assert.ok(!error.message.includes("private-"));
+          return true;
+        });
+        const mutated = ["ambiguous", "missing-after-mutation"].includes(
+          scenario,
+        );
+        assert.equal(mutations, mutated ? 1 : 0);
+        assert.equal(smokeChecks, 0);
+        assert.equal(existsSync("delivery-record.json"), mutated);
+        if (mutated)
+          assert.equal(
+            JSON.parse(readFileSync("delivery-record.json", "utf8")).status,
+            "mutation-requested",
+          );
+      }
+    });
+  }
+});

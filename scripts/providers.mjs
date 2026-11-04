@@ -252,6 +252,49 @@ export async function publishWeb(
   }
 }
 
+/** Read Worker preflight history; only production may interpret Cloudflare 404/10007 as absent. */
+async function workerPreflight(env, base, fetcher) {
+  assert.ok(
+    env.CLOUDFLARE_API_TOKEN,
+    "Missing environment provider credential",
+  );
+  const response = await fetcher(
+    `https://api.cloudflare.com${base}/deployments`,
+    {
+      headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  assert.ok(
+    response.ok ||
+      (env.CI_ENVIRONMENT === "production" && response.status === 404),
+    `Provider read failed (${response.status})`,
+  );
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("Worker preflight response is not valid JSON");
+  }
+  if (!response.ok) {
+    assert.ok(
+      body?.success === false &&
+        body.result == null &&
+        Array.isArray(body.errors) &&
+        body.errors.length === 1 &&
+        body.errors[0]?.code === 10007,
+      "Worker absence is not confirmed; inspect provider state",
+    );
+    return { exists: false, deployments: [] };
+  }
+  assert.ok(
+    body?.success === true && Array.isArray(body.result?.deployments),
+    "Worker preflight deployment history is invalid",
+  );
+  return { exists: true, deployments: body.result.deployments };
+}
+
 /** Deploy one prepared Worker, retain previous version, then verify provider tag and application health. */
 export async function publishWorker(
   env,
@@ -270,8 +313,7 @@ export async function publishWorker(
       env.CLOUDFLARE_API_TOKEN,
       fetcher,
     );
-  const before = await read(`${base}/deployments`);
-  assert.ok(Array.isArray(before.deployments));
+  const before = await workerPreflight(env, base, fetcher);
   const previous = before.deployments[0]?.versions;
   if (before.deployments.length)
     assert.ok(
@@ -290,7 +332,12 @@ export async function publishWorker(
   record.previousDeploymentId = previous?.[0]?.version_id ?? null;
   record.previousProviderDeploymentId = before.deployments[0]?.id ?? null;
   await freshness(env, fetcher);
-  const current = await read(`${base}/deployments`);
+  const current = await workerPreflight(env, base, fetcher);
+  assert.equal(
+    current.exists,
+    before.exists,
+    "Worker changed during preflight",
+  );
   assert.equal(
     current.deployments[0]?.id ?? null,
     record.previousProviderDeploymentId,
